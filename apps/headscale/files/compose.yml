@@ -1,0 +1,20 @@
+services:
+  headscale:
+    image: headscale/headscale:latest
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "${HEADSCALE_PORT:-8080}:8080"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/etc/headscale/config.yaml:ro
+      - data:/var/lib/headscale
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+volumes:
+  data:

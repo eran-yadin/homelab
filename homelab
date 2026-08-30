@@ -30,7 +30,9 @@ usage: homelab <command> [app] [options]
   info <app>             details for one app
   status [app] [--all]   current state (one JSON line per app with --json)
 
-  install <app>          download + start
+  setup                  pick apps from the store and install them (start here
+                         on a new machine)
+  install <app>...       download + start, one or more apps
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
   update <app>
@@ -70,6 +72,21 @@ while [ $# -gt 0 ]; do
 done
 export HOMELAB_APPLY
 require_apply_allowed
+
+# Read a line from the terminal when there is one, else from stdin -- so the
+# picker works interactively AND when driven by a pipe or a script.
+# `[ -r /dev/tty ]` is not enough: on a non-interactive ssh the node exists and
+# tests readable, but opening it fails with ENXIO.
+ask() {
+    local __var="$1" __line=""
+    if { exec 3</dev/tty; } 2>/dev/null; then
+        IFS= read -r __line <&3 || true
+        exec 3<&-
+    else
+        IFS= read -r __line || true
+    fi
+    printf -v "$__var" '%s' "$__line"
+}
 
 banner_mode() {
     if is_apply; then
@@ -189,29 +206,139 @@ resolve_deps() {
     printf '%s\n' "$n"
 }
 
-cmd_install() {
-    local n="${ARGS[0]:?usage: homelab install <app>}"
-    catalog_exists "$n" || die "no such app: $n"
-    banner_mode
-    local order; order="$(resolve_deps "$n" | awk '!seen[$0]++')"
+# Resolve a set of apps into one dependency-ordered install list, so
+# `install a b c` installs shared prerequisites once rather than per app.
+plan_for() {
+    local a
+    for a in "$@"; do
+        catalog_exists "$a" || die "no such app: $a  (try: homelab list)"
+        resolve_deps "$a"
+    done | awk '!seen[$0]++'
+}
+
+install_apps() {   # install_apps <app>...
+    local order; order="$(plan_for "$@")"
     local cnt; cnt="$(printf '%s\n' "$order" | grep -c .)"
-    if [ "$cnt" -gt 1 ]; then
-        log "install order: $(printf '%s ' $order)"
-    fi
+    log "install order ($cnt): $(printf '%s ' $order)"
+    local a rc failed=""
     for a in $order; do
         log "--- $a: download ---"
-        app_run_verb "$a" download || { [ $? = "$EX_NOOP" ] || die "$a: download failed"; }
+        set +e; app_run_verb "$a" download; rc=$?; set -e
+        if [ $rc != 0 ] && [ $rc != "$EX_NOOP" ]; then
+            err "$a: download failed (rc=$rc)"; failed+="$a "; continue
+        fi
         log "--- $a: start ---"
         set +e; app_run_verb "$a" start; rc=$?; set -e
-        [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || die "$a: start failed (rc=$rc)"
+        if [ $rc != 0 ] && [ $rc != "$EX_NOOP" ]; then
+            err "$a: start failed (rc=$rc)"; failed+="$a "; continue
+        fi
     done
+
+    echo >&2
     if is_apply; then
-        ok "$n installed"
-        app_load "$n"
-        if [ -n "$APP_PORTS" ]; then log "listening on: $APP_PORTS"; fi
+        for a in $order; do
+            case " $failed " in *" $a "*) continue ;; esac
+            app_load "$a"
+            if [ -n "$APP_PORTS" ]; then
+                ok "$a  ->  http://${DET_IP:-localhost}:${APP_PORTS%% *}"
+            else
+                ok "$a"
+            fi
+        done
     else
-        printf '\n%sdry run finished. re-run with --apply to actually do it.%s\n' "$C_DIM" "$C_RST" >&2
+        printf '%sdry run finished. re-run with --apply to actually do it.%s\n' \
+            "$C_DIM" "$C_RST" >&2
     fi
+    if [ -n "$failed" ]; then
+        err "failed: $failed"
+        return 1
+    fi
+}
+
+cmd_install() {
+    [ "${#ARGS[@]}" -gt 0 ] || die "usage: homelab install <app>... "
+    banner_mode
+    detect_host
+    install_apps "${ARGS[@]}"
+}
+
+# The front door on a new machine: what is this box, what is on offer,
+# what do you want.
+cmd_setup() {
+    detect_host
+    printf '\n%s== this machine ==%s\n' "$C_B" "$C_RST"
+    printf '  %s, %s cores, %s MB RAM, %s MB free on /\n' \
+        "$DET_OS_NAME" "$DET_CPUS" "$DET_RAM_MB" "${DET_DISK_FREE_MB:-?}"
+    printf '  docker: %s   mesh: %s   gpu: %s\n' "$DET_DOCKER" "$DET_MESH" "$DET_GPU"
+    if [ "$DET_FAMILY" = unknown ]; then
+        warn "unrecognised distro - most apps will refuse to install"
+    fi
+
+    printf '\n%s== the store ==%s\n' "$C_B" "$C_RST"
+    local -a names=()
+    local i=0 lastcat=""
+    local line
+    while IFS=$'\t' read -r cat name; do
+        [ -n "$name" ] || continue
+        app_load "$name"
+        if [ "$cat" != "$lastcat" ]; then
+            printf '\n  %s%s%s\n' "$C_DIM" "$cat" "$C_RST"; lastcat="$cat"
+        fi
+        i=$((i+1)); names[i]="$name"
+        local p; p="$(app_probe)"
+        local mark="  "
+        case "$p" in
+            installed) mark="${C_GRN}on${C_RST}" ;;
+            partial)   mark="${C_YEL}~~${C_RST}" ;;
+        esac
+        printf '   %b %2d) %-14s %-26s %s%s%s\n' "$mark" "$i" "$name" "$APP_TITLE" \
+            "$C_DIM" "${APP_DESC:0:46}" "$C_RST"
+    done < <(for n in $(catalog_names); do
+                 app_load "$n"; printf '%s\t%s\n' "$APP_CATEGORY" "$n"
+             done | sort)
+
+    if [ "$i" -eq 0 ]; then die "the catalog is empty"; fi
+
+    printf '\n%sPick what you want.%s numbers and/or names, space separated.\n' "$C_B" "$C_RST"
+    printf '  %s"all" for everything, "none"/Enter to cancel. Dependencies are added for you.%s\n' \
+        "$C_DIM" "$C_RST"
+    printf '> '
+    local sel; ask sel
+
+    local -a want=()
+    case "${sel:-}" in
+        ""|none|n|q|quit) log "nothing selected"; return 0 ;;
+        all) want=("${names[@]:1:$i}") ;;
+        *)
+            local tok
+            for tok in $sel; do
+                if [ -z "${tok//[0-9]/}" ]; then
+                    [ "$tok" -ge 1 ] && [ "$tok" -le "$i" ] \
+                        || die "no item numbered $tok"
+                    want+=("${names[$tok]}")
+                else
+                    catalog_exists "$tok" || die "no such app: $tok"
+                    want+=("$tok")
+                fi
+            done
+            ;;
+    esac
+
+    printf '\n'
+    log "selected: ${want[*]}"
+    local order; order="$(plan_for "${want[@]}")"
+    printf '%swill install, in order:%s %s\n' "$C_B" "$C_RST" "$(printf '%s ' $order)"
+
+    if ! is_apply; then
+        printf '\n%sThis is a dry run - nothing will change.%s\n' "$C_YEL" "$C_RST" >&2
+        printf '%sRe-run as: homelab setup --apply%s\n\n' "$C_DIM" "$C_RST" >&2
+    else
+        printf '\nProceed? [y/N] '
+        local yn; ask yn
+        case "$yn" in [yY]*) ;; *) log "cancelled"; return 0 ;; esac
+    fi
+    printf '\n'
+    install_apps "${want[@]}"
 }
 
 cmd_simple() {  # start|stop|update
@@ -270,6 +397,7 @@ case "$CMD" in
     info)    cmd_info ;;
     status)  cmd_status ;;
     install) cmd_install ;;
+    setup)   cmd_setup ;;
     download|start|stop|update) cmd_simple "$CMD" ;;
     restart) cmd_restart ;;
     delete|remove) cmd_delete ;;

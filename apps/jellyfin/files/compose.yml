@@ -1,0 +1,25 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - "${JELLYFIN_PORT:-8096}:8096"
+    volumes:
+      - config:/config
+      - cache:/cache
+      - ${MEDIA_DIR:-/srv/media}:/media:ro
+    # Intel QuickSync if the host has it. Harmless when /dev/dri is absent:
+    # the device list is optional, so the container still starts and falls
+    # back to software transcoding.
+    devices:
+      - /dev/dri:/dev/dri
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+volumes:
+  config:
+  cache:

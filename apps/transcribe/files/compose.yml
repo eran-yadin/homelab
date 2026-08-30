@@ -1,0 +1,23 @@
+services:
+  transcribe:
+    build: .
+    image: homelab/transcribe:latest
+    container_name: transcribe
+    restart: unless-stopped
+    ports:
+      - "8011:8011"
+    volumes:
+      - data:/data              # uploads, transcripts, sqlite db, model cache
+    environment:
+      # --- model ---
+      # Hebrew-best default. Swap to "large-v3-turbo" for English-dominant audio.
+      WHISPER_MODEL: ivrit-ai/whisper-large-v3-turbo-ct2
+      WHISPER_COMPUTE: int8     # lean on CPU; "int8_float32" if you want a touch more accuracy
+      WHISPER_LANGUAGE: auto    # auto | he | en
+      WHISPER_BEAM: "5"
+      # --- CPU budget (i3-7100U = 2c/4t) ---
+      WHISPER_THREADS: "${WHISPER_THREADS:-3}"   # set from detected cores at install time
+      PORT: "8011"
+
+volumes:
+  data:

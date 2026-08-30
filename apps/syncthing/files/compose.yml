@@ -1,0 +1,22 @@
+services:
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: syncthing
+    restart: unless-stopped
+    # Host networking: local peer discovery uses broadcast/multicast, which
+    # does not cross a bridge network.
+    network_mode: host
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - config:/var/syncthing/config
+      - ${SYNC_DIR:-/srv/sync}:/var/syncthing/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8384 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+volumes:
+  config:

@@ -1,0 +1,27 @@
+services:
+  manyfold:
+    # "solo" = app + postgres + redis in one container. The split image
+    # (ghcr.io/manyfold3d/manyfold) is the alternative if this ever needs to
+    # scale, but it means running a second database on the box.
+    image: ghcr.io/manyfold3d/manyfold-solo:latest
+    container_name: manyfold
+    restart: unless-stopped
+    ports:
+      - "${MANYFOLD_PORT:-3214}:3214"
+    environment:
+      SECRET_KEY_BASE: ${MANYFOLD_SECRET_KEY}
+      PUID: ${MANYFOLD_PUID:-1000}
+      PGID: ${MANYFOLD_PGID:-1000}
+    volumes:
+      - config:/config                              # database + plugins
+      - ${MODELS_DIR:-/srv/3dmodels}:/models        # your library
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:3214 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+volumes:
+  config:

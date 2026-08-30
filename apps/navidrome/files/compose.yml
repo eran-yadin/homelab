@@ -1,0 +1,21 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: navidrome
+    restart: unless-stopped
+    ports:
+      - "${NAVIDROME_PORT:-4533}:4533"
+    environment:
+      ND_LOGLEVEL: info
+      ND_SCANSCHEDULE: 1h
+    volumes:
+      - data:/data
+      - ${MUSIC_DIR:-/srv/music}:/music:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:4533/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+volumes:
+  data:

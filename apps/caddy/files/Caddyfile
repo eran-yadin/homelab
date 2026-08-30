@@ -1,0 +1,11 @@
+# Base config. Drop per-app route files into sites/ next to this file; each
+# one is a normal Caddy site block and gets imported here.
+{
+	admin off
+}
+
+:80 {
+	respond "homelab caddy is up. add routes in /etc/caddy/sites/" 200
+}
+
+import /etc/caddy/sites/*.caddy

@@ -1,0 +1,21 @@
+services:
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: adguard
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "3080:3000"      # setup wizard, then the dashboard
+    volumes:
+      - work:/opt/adguardhome/work
+      - conf:/opt/adguardhome/conf
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+volumes:
+  work:
+  conf:
