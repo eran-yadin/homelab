@@ -10,20 +10,57 @@ service, netmon, and a small status hub.
 
 ## Status
 
-What works today:
+Running on **nucserver** (10.0.0.5) since 2026-08-30.
 
 - [x] **app lifecycle contract** + catalog — see [docs/CONTRACT.md](docs/CONTRACT.md)
-- [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore
+- [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore / migrate / deploy
 - [x] **`homelab setup`** — pick apps from the store on a new machine, dependencies resolved for you
-- [x] inherited implementations for `kind=compose` and `kind=systemd`
+- [x] inherited implementations for `kind=compose`, `kind=systemd`, `kind=container`
 - [x] **20 apps**, most of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
-- [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle
+- [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle, and a [/docs](hub/docs.html) page
 - [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
 - [x] `tests/conformance.sh` — drives every app through its whole lifecycle
-- [x] Verified backup of the live paperless instance (see below)
-- [ ] `migrate` from the old server
+- [x] **backup / restore / `migrate`** — verified end to end against the live paperless data
 - [x] adopting the services already running on nucserver (AMP, Cockpit, Feishin)
-- [ ] deployment to nucserver itself
+- [x] **deployed to nucserver** — hub on :7070, caddy fronting :80, nginx retired
+- [ ] taking paperless itself into the catalog (see below)
+
+## What is deployed
+
+| | |
+|---|---|
+| hub | `:7070`, and `http://10.0.0.5/` through caddy |
+| caddy | `:80` / `:443`, host networking, routes generated from the catalog into `/etc/caddy/sites` |
+| routes | `hub.nuc` `paperless.nuc` `amp.nuc` `cockpit.nuc` `feishin.nuc` — they need DNS (AdGuard, the router, or a hosts file) |
+| adopted | amp (`ampinstmgr`), cockpit (`cockpit.socket`), feishin (a bare `docker run` container) |
+| retired | nginx — disabled, not purged, so the swap reverses with one command |
+
+The hub's sudoers rule is scoped to `/opt/homelab/homelab` plus `systemctl
+reboot|poweroff`, replacing the previous `systemctl start *` wildcard, which
+was root-equivalent: `systemctl start` accepts a path to any unit file,
+including one the caller just wrote.
+
+To ship a change to the server:
+
+    tar czf - --exclude=.git . | ssh nucserver 'rm -rf ~/homelab && mkdir -p ~/homelab && tar xzf - -C ~/homelab'
+    ssh nucserver 'sudo -n /opt/homelab/homelab deploy --from ~/homelab --apply'
+
+### Deliberately left alone
+
+**paperless** runs outside the catalog, from `~/paperless/docker-compose.yml`.
+The engine refuses to recreate containers created from a different compose
+file, so nothing here can touch it by accident. Taking it over is a decision,
+not a default:
+
+    homelab backup paperless <dir> --apply
+    docker compose -f ~/paperless/docker-compose.yml down
+    homelab restore paperless <dir> --apply && homelab start paperless --apply
+
+That exact sequence was rehearsed in the VM against the real 203 documents.
+
+**netmon** has been stopped since 2026-08-06 and has a 180 MB unmerged WAL
+beside a 259 MB database. Starting it will replay and checkpoint that. Left for
+its owner.
 
 ## The store
 
