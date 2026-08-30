@@ -9,11 +9,9 @@ services:
       - config:/config
       - cache:/cache
       - ${MEDIA_DIR:-/srv/media}:/media:ro
-    # Intel QuickSync if the host has it. Harmless when /dev/dri is absent:
-    # the device list is optional, so the container still starts and falls
-    # back to software transcoding.
-    devices:
-      - /dev/dri:/dev/dri
+    # No `devices:` here on purpose. Docker fails to start a container whose
+    # device is missing, and most hosts have no /dev/dri. download.sh writes a
+    # compose.override.yml adding it only when the hardware is actually there.
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
       interval: 30s

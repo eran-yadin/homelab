@@ -22,6 +22,13 @@ _dc_args() {
     DC_ARGS=("${DK[@]}" compose -p "$APP_NAME"
              --project-directory "$APP_FILES"
              -f "$COMPOSE_FILE")
+    # A per-host override, written by the app's download.sh when it finds
+    # hardware or conditions the base file cannot express. Compose has no way
+    # to make a `devices:` entry conditional, and a missing device is a hard
+    # start failure, so it has to be decided at install time.
+    if [ -f "$APP_STATE/compose.override.yml" ]; then
+        DC_ARGS+=(-f "$APP_STATE/compose.override.yml")
+    fi
     if [ -f "$APP_STATE/.env" ]; then DC_ARGS+=(--env-file "$APP_STATE/.env"); fi
 }
 

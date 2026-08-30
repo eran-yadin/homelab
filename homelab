@@ -32,6 +32,8 @@ usage: homelab <command> [app] [options]
 
   setup                  pick apps from the store and install them (start here
                          on a new machine)
+  deploy                 copy this working tree to /opt/homelab, which is the
+                         copy the hub reads. Run after adding or editing apps.
   install <app>...       download + start, one or more apps
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
@@ -341,6 +343,28 @@ cmd_setup() {
     install_apps "${want[@]}"
 }
 
+# The hub runs /opt/homelab/homelab, not your checkout, so a new app is
+# invisible to it until the engine is redeployed. That was previously a side
+# effect of `update hub`, which is not a thing anyone would guess.
+cmd_deploy() {
+    local dest=/opt/homelab
+    banner_mode
+    if [ "$HOMELAB_ROOT" = "$dest" ]; then
+        ok "already running from $dest - nothing to copy"
+        exit $EX_NOOP
+    fi
+    log "deploying $HOMELAB_ROOT -> $dest"
+    run $SUDO mkdir -p "$dest"
+    run_sh "$SUDO tar -cf - -C '$HOMELAB_ROOT' --exclude=.git --exclude=testenv/golden --exclude=testenv/run . | $SUDO tar -xf - -C '$dest'"
+    run $SUDO chmod 0755 "$dest/homelab"
+    run $SUDO ln -sfn "$dest/homelab" /usr/local/bin/homelab
+    if have systemctl && $SUDO systemctl is-active --quiet homelab-hub 2>/dev/null; then
+        log "restarting the hub so it picks up the new catalog"
+        run $SUDO systemctl restart homelab-hub
+    fi
+    ok "deployed"
+}
+
 cmd_simple() {  # start|stop|update
     local verb="$1" n="${ARGS[0]:?usage: homelab $1 <app>}"
     banner_mode
@@ -398,6 +422,7 @@ case "$CMD" in
     status)  cmd_status ;;
     install) cmd_install ;;
     setup)   cmd_setup ;;
+    deploy)  cmd_deploy ;;
     download|start|stop|update) cmd_simple "$CMD" ;;
     restart) cmd_restart ;;
     delete|remove) cmd_delete ;;
