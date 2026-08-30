@@ -38,7 +38,7 @@ fi
 # --- deploy the hub ---------------------------------------------------------
 log "installing the hub to $DEST"
 run $SUDO mkdir -p "$DEST"
-run $SUDO cp "$APP_FILES/server.py" "$APP_FILES/index.html" "$DEST/"
+run $SUDO cp "$APP_FILES/server.py" "$APP_FILES/index.html" "$APP_FILES/docs.html" "$DEST/"
 run $SUDO chown -R "$HUB_USER" "$DEST"
 
 # Custom filters are written here at runtime, so it must be writable by the

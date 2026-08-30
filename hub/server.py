@@ -383,6 +383,12 @@ def api_system():
                     "message": f"{action} in 3 seconds"})
 
 
+@app.route("/docs")
+def docs():
+    """How the app store works, and how to add to it."""
+    return send_from_directory(".", "docs.html")
+
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
