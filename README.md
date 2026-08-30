@@ -10,20 +10,33 @@ service, netmon, and a small status hub.
 
 ## Status
 
-Early. What exists today:
+What works today:
 
-- [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
-- [x] Verified backup of the live paperless instance (see below)
 - [x] **app lifecycle contract** + catalog — see [docs/CONTRACT.md](docs/CONTRACT.md)
-- [x] **`homelab` CLI** — detect / list / info / install / download / start / stop / update / delete / status / backup / restore
+- [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore
+- [x] **`homelab setup`** — pick apps from the store on a new machine, dependencies resolved for you
 - [x] inherited implementations for `kind=compose` and `kind=systemd`
-- [x] apps: `docker`, `paperless`, `netmon`
+- [x] **16 apps**, twelve of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
+- [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle
+- [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
 - [x] `tests/conformance.sh` — drives every app through its whole lifecycle
-- [ ] hub web front-end
+- [x] Verified backup of the live paperless instance (see below)
 - [ ] `migrate` from the old server
-- [ ] more apps: caddy, mesh (tailscale/headscale), navidrome, transcribe, jellyfin
+- [ ] adopting the services already running on nucserver (AMP, Cockpit)
+- [ ] deployment to nucserver itself
 
-See [docs/PLAN.md](docs/PLAN.md) for the full design.
+## The store
+
+| category | apps |
+|---|---|
+| base | docker, hub |
+| documents | paperless, transcribe |
+| files | manyfold, syncthing |
+| home | home-assistant |
+| media | jellyfin, navidrome |
+| network | adguard, headscale, netmon, tailscale |
+| ops | caddy, uptime-kuma |
+| security | vaultwarden |
 
 ## The idea in one paragraph
 
@@ -40,9 +53,16 @@ lacking `/etc/homelab/allow-apply`.
 
 ## Getting started
 
+On a new server:
+
+    ./homelab setup            # look, pick, dry run
+    ./homelab setup --apply    # actually install
+
+To develop against the throwaway VM instead:
+
     cd testenv
     make build     # once, downloads the golden image
-    make up
+    make up && make sync
     make ssh
 
 ## Backups taken so far

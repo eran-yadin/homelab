@@ -38,8 +38,13 @@ SSH_OPTS  := -i $(KEY) -p $(SSH_PORT) -o StrictHostKeyChecking=no \
              -o ConnectTimeout=5
 VM        := eran@127.0.0.1
 
-# Guest ports published to localhost. Add app ports here as apps are added.
-HOSTFWD   := hostfwd=tcp::$(SSH_PORT)-:22,hostfwd=tcp::7070-:7070,hostfwd=tcp::8010-:8010,hostfwd=tcp::8096-:8096,hostfwd=tcp::8080-:80,hostfwd=tcp::8443-:443
+# Guest ports published to localhost, one per app that has a web UI. Keep in
+# step with the `ports=` lines in apps/*/app.conf.
+COMMA      := ,
+EMPTY      :=
+SPACE      := $(EMPTY) $(EMPTY)
+FWD_PORTS  := 7070 8010 8096 3001 3214 4533 8011 8123 8384 8222 3080 8080
+HOSTFWD    := hostfwd=tcp::$(SSH_PORT)-:22,$(subst $(SPACE),$(COMMA),$(foreach p,$(FWD_PORTS),hostfwd=tcp::$(p)-:$(p))),hostfwd=tcp::8081-:80,hostfwd=tcp::8443-:443
 
 # SLIRP user-mode network. Deliberately 10.100.0.0/24 so it can never be
 # confused with the real LAN at 10.0.0.0/24.
