@@ -25,6 +25,7 @@ app_load() {
     ports=""; needs_ram_mb=0; needs_disk_mb=0; stateful=0
     detect=""; requires=""; homepage=""; notes=""
     unit=""; backup_paths=""; purge_paths=""; purge_users=""; oneshot=""; health_url=""
+    conflicts=""; adopted=0; container=""
 
     # shellcheck disable=SC1090
     . "$APP_DIR/app.conf"
@@ -36,6 +37,7 @@ app_load() {
     APP_HOMEPAGE="$homepage"; APP_NOTES="$notes"
     APP_UNIT="$unit"; APP_BACKUP_PATHS="$backup_paths"; APP_PURGE_PATHS="$purge_paths"
     APP_PURGE_USERS="$purge_users"; APP_ONESHOT="$oneshot"; APP_HEALTH_URL="$health_url"
+    APP_CONFLICTS="$conflicts"; APP_ADOPTED="$adopted"; APP_CONTAINER="$container"
 }
 
 # ---------------------------------------------------------------- probes
@@ -105,5 +107,7 @@ app_run_verb() {
     APP_STATEFUL="$APP_STATEFUL" APP_UNIT="$APP_UNIT" \
     APP_BACKUP_PATHS="$APP_BACKUP_PATHS" APP_PURGE_PATHS="$APP_PURGE_PATHS" \
     APP_PURGE_USERS="$APP_PURGE_USERS" APP_ONESHOT="$APP_ONESHOT" APP_HEALTH_URL="$APP_HEALTH_URL" \
+    APP_CONFLICTS="$APP_CONFLICTS" APP_ADOPTED="$APP_ADOPTED" \
+    APP_CONTAINER="$APP_CONTAINER" \
         bash "$IMPL" $IMPL_ARG "$@"
 }

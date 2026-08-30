@@ -71,6 +71,7 @@ Most apps write **no scripts at all**. Declare a `kind` and inherit its verbs:
 |---|---|---|
 | `compose` | docker compose apps | `files/compose.yml`, optionally `files/env.template` |
 | `systemd` | host services | usually its own `download.sh`; declares `unit=` |
+| `container` | a plain `docker run` container that predates this catalog | `container=`, usually with `adopted=1` |
 | `script` | anything else | all verbs itself |
 
 Dispatch order for a verb: `apps/<name>/<verb>.sh` if present and executable,
@@ -113,12 +114,42 @@ the hub.
 | `backup_paths` | — | kind=systemd: paths to archive |
 | `purge_paths` | — | kind=systemd: paths removed by `--purge` |
 | `purge_users` | — | kind=systemd: system users removed by `--purge` |
+| `oneshot` | — | compose services that run once and exit (init/migration); excluded from the running and total counts |
+| `health_url` | — | probed from the host when the container reports no health of its own — the only option for a distroless image with no shell |
+| `conflicts` | — | things that cannot coexist, e.g. `unit:nginx.service`. Checked before `start` |
+| `adopted` | `0` | this app already exists on the host; homelab controls it but will not install or remove it |
+| `container` | app name | kind=container: the container to adopt |
 | `homepage`, `notes` | — | shown by `info` |
 
 ### detect probes
 
 `container:<name>`, `unit:<name>`, `bin:<name>`, `path:<abs>`, `port:<n>`.
 All must match for `installed`; some for `partial`; none for `absent`.
+
+## Adopting what is already there
+
+A server that has been running for years already has services on it. An
+`adopted=1` entry puts one in the catalog so the hub can see and control it,
+while making clear homelab did not install it:
+
+- `download` is a no-op that verifies the thing exists, and fails with a clear
+  message if it does not
+- `delete` **refuses** — removing something you did not install, by a route
+  that never installed it, is how data disappears
+- `update` on an adopted container pulls the newer image but will not recreate
+  it: docker does not record the original `docker run` arguments, so there is
+  no safe way to rebuild it
+
+## Refusing to start rather than half-starting
+
+Before `start`, the engine checks that nothing else holds the app's ports, that
+no `conflicts=` entry is active, and — for compose apps — that no foreign
+container already owns a name the compose file claims.
+
+These failures are worth catching early because of how they present otherwise.
+"Address already in use" surfaces from deep inside docker, after the install
+has begun changing things, and never names what is holding the port. Worse, a
+`container_name` collision can silently attach to somebody else's container.
 
 ## Safety
 

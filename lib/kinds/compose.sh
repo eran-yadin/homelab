@@ -101,6 +101,26 @@ start)
     need_docker
     ensure_state_dir
     render_env
+    preflight_conflicts
+    # A container_name in the compose file is a global namespace. If a
+    # container by that name already exists and is not ours -- the classic
+    # case being a `docker run` container predating this catalog -- compose
+    # would fail with "name is already in use", or worse, we would adopt
+    # something we did not create.
+    for cn in $(sed -n 's/^[[:space:]]*container_name:[[:space:]]*//p' "$COMPOSE_FILE"); do
+        if "${DK[@]}" inspect "$cn" >/dev/null 2>&1; then
+            owner="$("${DK[@]}" inspect "$cn" \
+                --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)"
+            if [ "$owner" != "$APP_NAME" ]; then
+                err "a container named '$cn' already exists on this host and was not"
+                err "    created by homelab${owner:+ (it belongs to compose project '$owner')}."
+                err "    Starting $APP_NAME would clash with it. Inspect it first:"
+                err "        docker inspect $cn"
+                exit 1
+            fi
+        fi
+    done
+    preflight_ports ${APP_PORTS:-}
     total="$(_service_count)"
     running="$(_running_count)"
     if [ "$running" -gt 0 ] && [ "$running" = "$total" ]; then

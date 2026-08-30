@@ -85,4 +85,66 @@ render_env() {
     run $SUDO chown "$(owner_user):$(owner_group)" "$out"
 }
 
+# ------------------------------------------------------------- preflight
+#
+# "Address already in use" arrives from deep inside docker or systemd, long
+# after the install has started changing things, and never says what is
+# holding the port. These checks run first and name the culprit.
+
+# What is listening on a TCP port? Prints a short description, or nothing.
+port_holder() {
+    local p="$1"
+    $SUDO ss -tlnpH 2>/dev/null \
+        | awk -v pat=":$p\$" '$4 ~ pat {print; exit}' \
+        | sed -n 's/.*users:((\"\([^"]*\)\".*/\1/p'
+}
+
+# Refuse to start if something else already holds a port we need. A port held
+# by THIS app's own containers is fine -- that is just a restart.
+preflight_ports() {
+    local p holder cname proj
+    for p in "$@"; do
+        [ -n "$p" ] || continue
+        holder="$(port_holder "$p")"
+        [ -n "$holder" ] || continue
+
+        cname=""; proj=""
+        if [ "${#DK[@]}" -gt 0 ]; then
+            cname="$("${DK[@]}" ps --filter "publish=$p" --format '{{.Names}}' 2>/dev/null | head -1)"
+            proj="$("${DK[@]}" ps --filter "publish=$p" \
+                    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | head -1)"
+        fi
+        [ "$proj" = "$APP_NAME" ] && continue
+
+        if [ -n "$cname" ]; then
+            err "$APP_NAME needs port $p, but container '$cname' already has it."
+            err "    Stop it first:  homelab stop ${proj:-$cname}"
+        else
+            err "$APP_NAME needs port $p, but '$holder' is already listening on it."
+            err "    Stop that service, or change the port in $APP_STATE/.env"
+        fi
+        exit 1
+    done
+}
+
+# Explicit conflicts declared in app.conf, e.g. conflicts="unit:nginx.service"
+preflight_conflicts() {
+    local spec kind val
+    for spec in ${APP_CONFLICTS:-}; do
+        kind="${spec%%:*}"; val="${spec#*:}"
+        case "$kind" in
+            unit)
+                if have systemctl && $SUDO systemctl is-active --quiet "$val" 2>/dev/null; then
+                    err "$APP_NAME cannot run alongside $val, which is active."
+                    err "    Stop it first:  sudo systemctl disable --now $val"
+                    exit 1
+                fi ;;
+            bin)
+                if have "$val"; then
+                    warn "$APP_NAME conflicts with '$val', which is installed on this host"
+                fi ;;
+        esac
+    done
+}
+
 compose_env_file() { printf '%s/.env' "$APP_STATE"; }

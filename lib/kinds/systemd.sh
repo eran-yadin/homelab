@@ -27,6 +27,16 @@ unit_enabled() { $SUDO systemctl is-enabled --quiet "$UNIT" 2>/dev/null; }
 case "$VERB" in
 
 download)
+    # An adopt-only entry does not install anything: it puts a service that
+    # already exists on this host into the catalog so the hub can see and
+    # control it.
+    if [ "${APP_ADOPTED:-0}" = 1 ]; then
+        if unit_exists; then
+            ok "$APP_NAME: adopting the existing $UNIT"
+            exit $EX_NOOP
+        fi
+        die "$APP_NAME is an adopt-only entry, but $UNIT does not exist on this host"
+    fi
     die "$APP_NAME: kind=systemd has no generic download; the app must supply download.sh"
     ;;
 
@@ -45,6 +55,8 @@ start)
         ok "$APP_NAME: already running"
         exit $EX_NOOP
     fi
+    preflight_conflicts
+    preflight_ports ${APP_PORTS:-}
     log "$APP_NAME: starting $UNIT"
     run $SUDO systemctl enable --now "$UNIT"
     ok "$APP_NAME: started"
@@ -81,6 +93,11 @@ update)
 
 delete)
     need_systemd
+    if [ "${APP_ADOPTED:-0}" = 1 ]; then
+        err "$APP_NAME is an adopt-only entry: homelab did not install it and"
+        err "    will not remove it. Remove it the way it was installed."
+        exit 1
+    fi
     purge=0
     if [ "${1:-}" = "--purge" ]; then purge=1; fi
     if ! unit_exists; then ok "$APP_NAME: nothing to delete"; exit $EX_NOOP; fi
