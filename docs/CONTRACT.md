@@ -158,6 +158,16 @@ for a restore; use `download`.
 generated secrets travel with the data. That file is as sensitive as the
 backup itself.
 
+Prefer this over an application's own export where one exists. A volume
+archive is a byte-for-byte copy; an app-level exporter re-serialises through
+its own model layer and can silently omit rows. Measured, not theoretical:
+paperless-ngx 2.20.13's `document_exporter` left one note out of twenty out of
+its manifest, with nothing in the output to say so.
+
+Pin image versions rather than tracking `:latest`. An app-level export usually
+imports only into the version it came from, and `:latest` also means a routine
+`update` can carry a stateful app across a major version unattended.
+
 ## Refusing to start rather than half-starting
 
 Before `start`, the engine checks that nothing else holds the app's ports, that
