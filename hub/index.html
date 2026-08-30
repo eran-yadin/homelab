@@ -553,6 +553,10 @@
     margin-left: 0.4rem; opacity: 0.5; font-size: 0.9em; cursor: pointer;
   }
   .tab-edit:hover { opacity: 1; }
+  .filter-tab.toggle { border-color: var(--border2); }
+  .filter-tab.toggle.active {
+    background: var(--green-dim); border-color: var(--green); color: var(--green);
+  }
   .filter-tab.add {
     font-weight: 700; padding-left: 0.7rem; padding-right: 0.7rem;
     color: var(--amber); border-color: var(--amber-dim);
@@ -665,6 +669,10 @@
     <div class="section-title">Services</div>
     <div style="display:flex;gap:0.8rem;align-items:center;flex-wrap:wrap">
       <div class="filter-tabs" id="filter-tabs"></div>
+      <button class="filter-tab toggle" id="installed-toggle"
+              onclick="toggleInstalled()" title="Show only what is installed (i)">
+        Installed only
+      </button>
       <div class="search-wrap">
         <svg class="search-icon" width="11" height="11" viewBox="0 0 11 11" fill="none">
           <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" stroke-width="1.5"/>
@@ -729,6 +737,8 @@ let refreshTimer;
 let bootTime = null;          // /proc btime, used to confirm a reboot happened
 let FILTERS = [];             // custom filters, stored server-side
 let editingId = null;         // filter being edited in the modal, null = new
+let STATUS = {};              // live state per app, keyed by app id
+let installedOnly = localStorage.getItem('hub.installedOnly') === '1';
 
 /* ---------------------------------------------------------------- utils */
 
@@ -810,11 +820,27 @@ function applyFilters() {
       svc.name.toLowerCase().includes(q) ||
       svc.id.toLowerCase().includes(q) ||
       (svc.desc || '').toLowerCase().includes(q);
-    const show = matchGroup && matchText;
+    // "installed" means the engine can see it here at all -- running,
+    // stopped, degraded or images-present. Only `absent` is not installed.
+    const st = STATUS[svc.id];
+    const isInstalled = st ? st.state !== 'absent' : svc.presence !== 'absent';
+    const matchInstalled = !installedOnly || isInstalled;
+
+    const show = matchGroup && matchText && matchInstalled;
     card.classList.toggle('hidden', !show);
     if (show) shown++;
   });
   document.getElementById('empty-note').style.display = shown ? 'none' : 'block';
+  document.getElementById('empty-note').textContent = installedOnly && !shown
+    ? 'Nothing installed matches that filter.'
+    : 'Nothing matches that filter.';
+}
+
+function toggleInstalled() {
+  installedOnly = !installedOnly;
+  localStorage.setItem('hub.installedOnly', installedOnly ? '1' : '0');
+  document.getElementById('installed-toggle').classList.toggle('active', installedOnly);
+  applyFilters();
 }
 
 function buildTabs() {
@@ -1012,6 +1038,7 @@ const STATE_UI = {
 };
 
 function updateServiceStatuses(statuses) {
+  statuses.forEach(s => { STATUS[s.app] = s; });
   statuses.forEach(s => {
     const id = s.app;
     const dot = document.getElementById(`dot-${id}`);
@@ -1044,6 +1071,8 @@ function updateServiceStatuses(statuses) {
     const open = document.getElementById(`open-${id}`);
     if (open) open.classList.toggle('disabled', !running);
   });
+  // an app that just appeared or disappeared may change what the filter shows
+  applyFilters();
 }
 
 /* --------------------------------------------------------------- actions */
@@ -1211,11 +1240,13 @@ document.addEventListener('keydown', e => {
   if (e.key === '/') { e.preventDefault(); document.getElementById('search').focus(); }
   if (e.key === 'r') refresh();
   if (e.key === 'l') setLinkMode(linkMode === 'local' ? 'tailscale' : 'local');
+  if (e.key === 'i') toggleInstalled();
 });
 
 (async () => {
   setInterval(updateClock, 1000);
   updateClock();
+  document.getElementById('installed-toggle').classList.toggle('active', installedOnly);
   await loadConfig().catch(() =>
     toast('Could not load the catalog — is homelab-hub running?', 'error'));
   await refresh();

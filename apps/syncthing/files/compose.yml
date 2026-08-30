@@ -1,5 +1,20 @@
 services:
+  # Same trap as manyfold: docker creates the named volume owned by root, the
+  # image runs as PUID, and syncthing cannot write its own cert.pem into it --
+  # it then restart-loops. The host directory behind SYNC_DIR needs the same
+  # treatment, since it is created by docker as root on first run.
+  init-perms:
+    image: alpine:3
+    command: ["sh", "-c", "chown -R ${PUID:-1000}:${PGID:-1000} /var/syncthing/config /var/syncthing/data"]
+    volumes:
+      - config:/var/syncthing/config
+      - ${SYNC_DIR:-/srv/sync}:/var/syncthing/data
+    restart: "no"
+
   syncthing:
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
     image: syncthing/syncthing:latest
     container_name: syncthing
     restart: unless-stopped
@@ -7,8 +22,8 @@ services:
     # does not cross a bridge network.
     network_mode: host
     environment:
-      PUID: "1000"
-      PGID: "1000"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
     volumes:
       - config:/var/syncthing/config
       - ${SYNC_DIR:-/srv/sync}:/var/syncthing/data
