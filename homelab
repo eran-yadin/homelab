@@ -17,6 +17,7 @@ HOMELAB_APPLY=0
 JSON=0
 ALL=0
 PURGE=0
+MIGRATE_FROM=""
 export HOMELAB_APPLY
 
 usage() {
@@ -42,6 +43,9 @@ usage: homelab <command> [app] [options]
 
   backup <app> <dir>
   restore <app> <dir>
+  migrate <app> --from [user@]host:/dir
+                         fetch a backup from another machine and bring the app
+                         up here, in the one order that is safe
 
 options:
   --apply       actually do it. Without this, every command is a dry run
@@ -65,6 +69,7 @@ while [ $# -gt 0 ]; do
         --json)   JSON=1 ;;
         --all)    ALL=1 ;;
         --purge)  PURGE=1 ;;
+        --from)   shift; MIGRATE_FROM="${1:-}" ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -426,6 +431,51 @@ cmd_restore() {
     app_run_verb "$n" restore "$d"
 }
 
+# Fetch a backup from the old machine and bring the app up here. The only
+# reason this exists rather than three documented commands is the order:
+# `install` starts the app, the database initialises a fresh cluster, and the
+# restore then lands on live files. Doing it wrong is silent.
+cmd_migrate() {
+    local n="${ARGS[0]:?usage: homelab migrate <app> --from [user@]host:/dir}"
+    catalog_exists "$n" || die "no such app: $n"
+    [ -n "$MIGRATE_FROM" ] || die "migrate needs --from [user@]host:/dir"
+    banner_mode
+    detect_host
+
+    local stage="$HOMELAB_DATA/migrate/$n"
+    log "staging into $stage"
+    run $SUDO mkdir -p "$stage"
+    run $SUDO chown "$(owner_user):$(owner_group)" "$stage"
+
+    log "fetching $MIGRATE_FROM"
+    if is_apply; then
+        have scp || die "scp is not installed; copy the backup here yourself and use: homelab restore $n <dir>"
+        scp -r "$MIGRATE_FROM"/. "$stage"/ || die "could not fetch $MIGRATE_FROM"
+        local count; count="$(find "$stage" -type f | wc -l)"
+        [ "$count" -gt 0 ] || die "$stage is empty - nothing was fetched"
+        ok "fetched $count files"
+    else
+        printf '%s     would run:%s scp -r %s/. %s/\n' "$C_DIM" "$C_RST" "$MIGRATE_FROM" "$stage" >&2
+    fi
+
+    local rc
+    log "--- $n: download (images only) ---"
+    set +e; app_run_verb "$n" download; rc=$?; set -e
+    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || die "$n: download failed"
+
+    log "--- $n: restore (before anything starts) ---"
+    set +e; app_run_verb "$n" restore "$stage"; rc=$?; set -e
+    [ $rc = 0 ] || die "$n: restore failed"
+
+    log "--- $n: start ---"
+    set +e; app_run_verb "$n" start; rc=$?; set -e
+    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || die "$n: start failed"
+
+    if is_apply; then
+        ok "$n migrated. Check it, then remove the staging copy: sudo rm -rf $stage"
+    fi
+}
+
 case "$CMD" in
     detect)  cmd_detect ;;
     list|ls) cmd_list ;;
@@ -438,6 +488,7 @@ case "$CMD" in
     restart) cmd_restart ;;
     delete|remove) cmd_delete ;;
     backup)  cmd_backup ;;
+    migrate) cmd_migrate ;;
     restore) cmd_restore ;;
     ""|help|-h|--help) usage ;;
     *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
