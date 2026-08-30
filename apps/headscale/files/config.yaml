@@ -25,5 +25,21 @@ dns:
       - 1.1.1.1
       - 8.8.8.8
 
+# Headscale refuses to start with an empty DERP map: "initial DERPMap is
+# empty, Headscale requires at least one entry". DERP servers are the relays
+# used when two machines cannot reach each other directly (strict NAT, mobile
+# networks). Pointing at Tailscale's public relays is the default; running
+# your own means embedding a derp.yaml here instead. Worth knowing that this
+# is the one part of "self-hosted" that still leaves the house by default --
+# relayed traffic is end-to-end encrypted, but it does transit their servers.
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 24h
+
 log:
   level: info

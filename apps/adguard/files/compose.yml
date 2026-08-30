@@ -4,9 +4,14 @@ services:
     container_name: adguard
     restart: unless-stopped
     ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-      - "3080:3000"      # setup wizard, then the dashboard
+      # DNS_BIND_IP is decided at install time. On a host running
+      # systemd-resolved, something already holds 127.0.0.53:53 (and often
+      # 127.0.0.54:53), and binding 0.0.0.0:53 then fails with "address
+      # already in use" -- intermittently, which is worse than always.
+      # Binding the LAN address instead sidesteps it without touching resolved.
+      - "${DNS_BIND_IP:-0.0.0.0}:53:53/tcp"
+      - "${DNS_BIND_IP:-0.0.0.0}:53:53/udp"
+      - "${ADGUARD_PORT:-3080}:3000"   # setup wizard, then the dashboard
     volumes:
       - work:/opt/adguardhome/work
       - conf:/opt/adguardhome/conf

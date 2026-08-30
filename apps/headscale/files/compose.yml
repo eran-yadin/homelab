@@ -10,11 +10,10 @@ services:
     volumes:
       - ./config.yaml:/etc/headscale/config.yaml:ro
       - data:/var/lib/headscale
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+    # No healthcheck here: this image is distroless. It has no /bin/sh, no
+    # wget and no curl, so every form of docker healthcheck fails with
+    # "stat /bin/sh: no such file or directory" -- which reads as unhealthy
+    # while the service is perfectly fine. app.conf declares health_url
+    # instead and the engine probes it from the host.
 volumes:
   data:

@@ -195,6 +195,17 @@ status)
     if [ "$starting"  -gt 0 ]; then health=starting; fi
     if [ "$healthy"   -gt 0 ]; then health=healthy;  fi
     if [ "$unhealthy" -gt 0 ]; then health=unhealthy; fi
+
+    # Distroless images have no shell, so docker's own healthcheck cannot run
+    # in them at all -- it fails with "stat /bin/sh: no such file". When an app
+    # declares health_url, probe the published port from the host instead.
+    if [ "$health" = none ] && [ -n "${APP_HEALTH_URL:-}" ] && [ "$state" = running ]; then
+        if have curl && curl -fsS -o /dev/null --max-time 3 "$APP_HEALTH_URL" 2>/dev/null; then
+            health=healthy
+        else
+            health=unhealthy
+        fi
+    fi
     emit_status "$state" true \
         containers="$running/$total" health="$health" ports="${APP_PORTS:-}"
     ;;

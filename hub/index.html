@@ -625,7 +625,7 @@
     </div>
   </div>
   <div class="header-right">
-    <div class="link-toggle" title="Which address the Open buttons use">
+    <div class="link-toggle" title="Which address the Open buttons use: the host you are on, or the tailnet">
       <button class="link-opt active" id="mode-local"     onclick="setLinkMode('local')">Local</button>
       <button class="link-opt"        id="mode-tailscale" onclick="setLinkMode('tailscale')">Tailscale</button>
     </div>
@@ -761,7 +761,13 @@ function statBar(pct) { return pct > 85 ? 'danger' : pct > 65 ? 'warn' : ''; }
 
 function urlFor(svc) {
   const u = svc.urls || {};
-  return u[linkMode] || u.local || null;
+  if (linkMode === 'tailscale' && u.tailscale) return u.tailscale;
+  // "Local" means the host you are already viewing the hub on, not the
+  // server's LAN address. If you reached the hub through an ssh tunnel, a
+  // port forward, or any name other than its LAN IP, a link built from that
+  // IP is one your browser cannot follow. Reuse what already worked.
+  if (!svc.port) return u.local || null;
+  return `${window.location.protocol}//${window.location.hostname}:${svc.port}`;
 }
 
 function setLinkMode(mode) {
