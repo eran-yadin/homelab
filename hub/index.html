@@ -278,11 +278,12 @@
     height: 100%;
   }
 
-  .svc-card[data-group="gaming"]::after { background: var(--purple); }
-  .svc-card[data-group="media"]::after { background: var(--teal); }
-  .svc-card[data-group="productivity"]::after { background: var(--blue); }
-  .svc-card[data-group="system"]::after { background: var(--muted); }
-  .svc-card[data-group="ai"]::after { background: var(--amber); }
+  /* The accent stripe down the left edge. This used to be one rule per
+     category name, which meant only the categories that happened to be listed
+     got a stripe -- in practice just `media`. The colour now comes from a
+     custom property set on the card by groupAccent(), so every category has
+     one and a new category needs no rule here. */
+  .svc-card::after { background: var(--group-accent, var(--border2)); }
 
   .svc-top {
     display: flex;
@@ -1188,6 +1189,10 @@ function hueFor(name) {
   return Math.round(((h >>> 0) * 137.508) % 360);
 }
 
+function groupAccent(name) {
+  return `hsl(${hueFor(name)} 62% 52%)`;
+}
+
 function groupStyle(name) {
   const h = hueFor(name);
   const sat = name === 'misc' || name === 'system' ? 12 : 60;
@@ -1205,7 +1210,8 @@ function buildCard(svc) {
     : `<span class="btn btn-open disabled">No UI</span>`;
 
   return `
-    <div class="svc-card" id="card-${svc.id}" data-group="${svc.group}">
+    <div class="svc-card" id="card-${svc.id}" data-group="${svc.group}"
+         style="--group-accent:${groupAccent(svc.group)}">
       <div class="svc-top">
         <div>
           <div class="svc-name">${svc.name}</div>
