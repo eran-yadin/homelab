@@ -1,0 +1,44 @@
+[Unit]
+Description=netmon - continuous network monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/netmon/venv/bin/python /opt/netmon/netmon.py
+Restart=always
+RestartSec=10
+
+# Run as the netmon user (created by install.sh)
+User=netmon
+Group=netmon
+
+# Resource limits — this thing is tiny but let's be polite
+MemoryMax=256M
+CPUQuota=20%
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/netmon /var/log/netmon
+# ping needs raw sockets — grant just that capability
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+# Configuration via environment
+Environment=NETMON_DB=/var/lib/netmon/netmon.db
+Environment=NETMON_INTERVAL=1.0
+Environment=NETMON_TIMEOUT=2.0
+Environment=NETMON_RETENTION_DAYS=30
+# Edit these targets to match your network.
+# gateway = your router's LAN IP (from `ip route` -> default via X)
+# isp_edge = the first hop OUTSIDE your house from pathping (the 100.x.x.x one)
+Environment=NETMON_TARGETS=gateway=10.0.0.138,isp_edge=100.76.159.254,google_dns=8.8.8.8,cloudflare=1.1.1.1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

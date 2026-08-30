@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# homelab - an app store for your own server
+#
+# Nothing changes without --apply, and --apply refuses on any host that has not
+# opted in via /etc/homelab/allow-apply.
+
+set -euo pipefail
+
+HOMELAB_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+export HOMELAB_ROOT
+# shellcheck disable=SC1091
+. "$HOMELAB_ROOT/lib/common.sh"
+. "$HOMELAB_ROOT/lib/detect.sh"
+. "$HOMELAB_ROOT/lib/catalog.sh"
+
+HOMELAB_APPLY=0
+JSON=0
+ALL=0
+PURGE=0
+export HOMELAB_APPLY
+
+usage() {
+cat <<'USAGE'
+homelab - an app store for your own server
+
+usage: homelab <command> [app] [options]
+
+  detect                 what this machine is and what it already runs
+  list                   the catalog, and what is installed here
+  info <app>             details for one app
+  status [app] [--all]   current state (one JSON line per app with --json)
+
+  install <app>          download + start
+  start|stop <app>
+  update <app>
+  delete <app> [--purge] --purge also destroys its data
+
+  backup <app> <dir>
+  restore <app> <dir>
+
+options:
+  --apply       actually do it. Without this, every command is a dry run
+                that only prints what it would do.
+  --json        machine-readable output (used by the hub)
+  --all         with status: every app in the catalog
+  --debug       trace dispatch
+
+Nothing changes without --apply. --apply additionally refuses to run unless
+/etc/homelab/allow-apply exists on this host.
+USAGE
+}
+
+# ------------------------------------------------------------------ args
+
+CMD="${1:-}"; [ $# -gt 0 ] && shift || true
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --apply)  HOMELAB_APPLY=1 ;;
+        --json)   JSON=1 ;;
+        --all)    ALL=1 ;;
+        --purge)  PURGE=1 ;;
+        --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
+        -h|--help) usage; exit 0 ;;
+        -*) die "unknown option: $1" ;;
+        *)  ARGS+=("$1") ;;
+    esac
+    shift
+done
+export HOMELAB_APPLY
+require_apply_allowed
+
+banner_mode() {
+    if is_apply; then
+        printf '%s[APPLY]%s changes will be made to this machine\n' "$C_YEL$C_B" "$C_RST" >&2
+    else
+        printf '%s[dry-run]%s nothing will change. add --apply to do it for real.%s\n' \
+            "$C_DIM" "$C_RST" "" >&2
+    fi
+}
+
+# ------------------------------------------------------------------ commands
+
+cmd_detect() {
+    if [ "$JSON" = 1 ]; then detect_json; else detect_print; fi
+}
+
+cmd_list() {
+    if [ "$JSON" = 1 ]; then
+        local first=1; printf '['
+        for n in $(catalog_names); do
+            app_load "$n"
+            [ $first = 1 ] || printf ','; first=0
+            printf '{"app":"%s","title":"%s","category":"%s","kind":"%s","desc":"%s","ports":"%s","presence":"%s"}' \
+                "$n" "$(json_escape "$APP_TITLE")" "$APP_CATEGORY" "$APP_KIND" \
+                "$(json_escape "$APP_DESC")" "$APP_PORTS" "$(app_probe)"
+        done
+        printf ']\n'; return
+    fi
+
+    local cat last=""
+    for n in $(catalog_names); do
+        app_load "$n"
+        printf '%s\t%s\t%s\t%s\n' "$APP_CATEGORY" "$n" "$APP_TITLE" "$(app_probe)"
+    done | sort | while IFS=$'\t' read -r cat name title presence; do
+        if [ "$cat" != "$last" ]; then
+            printf '\n%s%s%s\n' "$C_B" "$cat" "$C_RST"; last="$cat"
+        fi
+        case "$presence" in
+            installed) mark="${C_GRN}installed${C_RST}" ;;
+            partial)   mark="${C_YEL}partial${C_RST}" ;;
+            absent)    mark="${C_DIM}-${C_RST}" ;;
+            *)         mark="${C_DIM}?${C_RST}" ;;
+        esac
+        printf '  %-16s %-28s %s\n' "$name" "$title" "$mark"
+    done
+    printf '\n'
+}
+
+cmd_info() {
+    local n="${ARGS[0]:?usage: homelab info <app>}"
+    app_load "$n"
+    printf '%s%s%s  (%s)\n' "$C_B" "$APP_TITLE" "$C_RST" "$APP_NAME"
+    printf '  %s\n\n' "$APP_DESC"
+    printf '  kind        %s\n' "$APP_KIND"
+    printf '  category    %s\n' "$APP_CATEGORY"
+    [ -n "$APP_PORTS" ]    && printf '  ports       %s\n' "$APP_PORTS"
+    [ -n "$APP_REQUIRES" ] && printf '  requires    %s\n' "$APP_REQUIRES"
+    [ "$APP_RAM" != 0 ]    && printf '  needs ram   %s MB\n' "$APP_RAM"
+    [ "$APP_DISK" != 0 ]   && printf '  needs disk  %s MB\n' "$APP_DISK"
+    printf '  stateful    %s\n' "$([ "$APP_STATEFUL" = 1 ] && echo 'yes - has data worth backing up' || echo no)"
+    printf '  presence    %s\n' "$(app_probe)"
+    [ -n "$APP_HOMEPAGE" ] && printf '  homepage    %s\n' "$APP_HOMEPAGE"
+    if [ -n "$APP_NOTES" ]; then printf '\n  %s\n' "$APP_NOTES"; fi
+    printf '\n  implements  '
+    local v found=""
+    for v in download start stop update delete status backup restore; do
+        if app_verb_impl "$n" "$v" 2>/dev/null; then
+            [ -x "$APP_DIR/$v.sh" ] && found+="$v* " || found+="$v "
+        fi
+    done
+    printf '%s\n' "$found"
+    printf '              %s(* = its own; the rest inherited from kind=%s)%s\n' "$C_DIM" "$APP_KIND" "$C_RST"
+}
+
+cmd_status() {
+    local names
+    if [ "${#ARGS[@]}" -gt 0 ]; then names="${ARGS[0]}"
+    elif [ "$ALL" = 1 ]; then names="$(catalog_names)"
+    else names="$(catalog_names)"; fi
+
+    if [ "$JSON" = 1 ]; then
+        for n in $names; do app_run_verb "$n" status || true; done
+        return
+    fi
+    printf '%-16s %-12s %-10s %s\n' APP STATE HEALTH DETAIL
+    for n in $names; do
+        local line; line="$(app_run_verb "$n" status 2>/dev/null || echo '{}')"
+        local st he co
+        st="$(printf '%s' "$line" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')"
+        he="$(printf '%s' "$line" | sed -n 's/.*"health":"\([^"]*\)".*/\1/p')"
+        co="$(printf '%s' "$line" | sed -n 's/.*"containers":"\([^"]*\)".*/\1/p')"
+        case "$st" in
+            running)  c="$C_GRN" ;;
+            degraded) c="$C_YEL" ;;
+            stopped)  c="$C_DIM" ;;
+            absent|"") c="$C_DIM"; st="${st:-unknown}" ;;
+            *) c="$C_RED" ;;
+        esac
+        printf '%-16s %b%-12s%b %-10s %s\n' "$n" "$c" "$st" "$C_RST" "${he:--}" "${co:-}"
+    done
+}
+
+# Resolve requires= into an install order, depth-first, without duplicates.
+resolve_deps() {
+    local n="$1" seen="${2:-}"
+    case " $seen " in *" $n "*) return 0 ;; esac
+    app_load "$n"
+    local req
+    for req in $APP_REQUIRES; do
+        catalog_exists "$req" || die "$n requires '$req', which is not in the catalog"
+        resolve_deps "$req" "$seen $n"
+    done
+    printf '%s\n' "$n"
+}
+
+cmd_install() {
+    local n="${ARGS[0]:?usage: homelab install <app>}"
+    catalog_exists "$n" || die "no such app: $n"
+    banner_mode
+    local order; order="$(resolve_deps "$n" | awk '!seen[$0]++')"
+    local cnt; cnt="$(printf '%s\n' "$order" | grep -c .)"
+    if [ "$cnt" -gt 1 ]; then
+        log "install order: $(printf '%s ' $order)"
+    fi
+    for a in $order; do
+        log "--- $a: download ---"
+        app_run_verb "$a" download || { [ $? = "$EX_NOOP" ] || die "$a: download failed"; }
+        log "--- $a: start ---"
+        set +e; app_run_verb "$a" start; rc=$?; set -e
+        [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || die "$a: start failed (rc=$rc)"
+    done
+    if is_apply; then
+        ok "$n installed"
+        app_load "$n"
+        if [ -n "$APP_PORTS" ]; then log "listening on: $APP_PORTS"; fi
+    else
+        printf '\n%sdry run finished. re-run with --apply to actually do it.%s\n' "$C_DIM" "$C_RST" >&2
+    fi
+}
+
+cmd_simple() {  # start|stop|update
+    local verb="$1" n="${ARGS[0]:?usage: homelab $1 <app>}"
+    banner_mode
+    set +e; app_run_verb "$n" "$verb"; local rc=$?; set -e
+    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || exit $rc
+}
+
+cmd_delete() {
+    local n="${ARGS[0]:?usage: homelab delete <app> [--purge]}"
+    banner_mode
+    if [ "$PURGE" = 1 ] && is_apply; then
+        app_load "$n"
+        if [ "$APP_STATEFUL" = 1 ]; then
+            warn "$n holds data. --purge will destroy it permanently."
+            printf 'type the app name to confirm: ' >&2
+            read -r confirm
+            [ "$confirm" = "$n" ] || die "aborted"
+        fi
+    fi
+    set +e
+    if [ "$PURGE" = 1 ]; then app_run_verb "$n" delete --purge; else app_run_verb "$n" delete; fi
+    local rc=$?; set -e
+    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || exit $rc
+}
+
+cmd_backup() {
+    local n="${ARGS[0]:?usage: homelab backup <app> <dir>}"
+    local d="${ARGS[1]:?usage: homelab backup <app> <dir>}"
+    banner_mode
+    app_run_verb "$n" backup "$d"
+}
+
+cmd_restore() {
+    local n="${ARGS[0]:?usage: homelab restore <app> <dir>}"
+    local d="${ARGS[1]:?usage: homelab restore <app> <dir>}"
+    banner_mode
+    app_run_verb "$n" restore "$d"
+}
+
+case "$CMD" in
+    detect)  cmd_detect ;;
+    list|ls) cmd_list ;;
+    info)    cmd_info ;;
+    status)  cmd_status ;;
+    install) cmd_install ;;
+    start|stop|update) cmd_simple "$CMD" ;;
+    delete|remove) cmd_delete ;;
+    backup)  cmd_backup ;;
+    restore) cmd_restore ;;
+    ""|help|-h|--help) usage ;;
+    *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
+esac

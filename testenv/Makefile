@@ -22,7 +22,7 @@ RUN       := run
 DISK      := $(RUN)/disk.qcow2
 DATA      := $(RUN)/data.img
 SEED      := $(RUN)/seed.img
-KEY       := $(RUN)/id_ed25519
+KEY       := $(CURDIR)/$(RUN)/id_ed25519
 PID       := $(RUN)/qemu.pid
 CONSOLE   := $(RUN)/console.log
 
@@ -45,7 +45,7 @@ HOSTFWD   := hostfwd=tcp::$(SSH_PORT)-:22,hostfwd=tcp::7070-:7070,hostfwd=tcp::8
 # confused with the real LAN at 10.0.0.0/24.
 NETDEV    := user,id=n0,net=10.100.0.0/24,host=10.100.0.2,dns=10.100.0.3,$(HOSTFWD)
 
-.PHONY: all build up down reset ssh status clean distclean check
+.PHONY: all build up down reset ssh status clean distclean check sync test
 
 # ---------------------------------------------------------------- preflight
 
@@ -178,7 +178,7 @@ status:
 	if ssh $(SSH_OPTS) -o BatchMode=yes $(VM) true 2>/dev/null; then
 	  echo "ssh:  ok on port $(SSH_PORT)"
 	  ssh $(SSH_OPTS) $(VM) 'echo "host: $$(hostname) / $$(. /etc/os-release; echo $$PRETTY_NAME)"; \
-	    echo "disk: $$(df -h /var/lib/docker 2>/dev/null | tail -1 | tr -s " ")"; \
+	    echo "disk: $$(df -h /data 2>/dev/null | tail -1 | tr -s " ")"; \
 	    echo "mark: $$(cat /etc/homelab/allow-apply 2>/dev/null || echo MISSING)"'
 	else
 	  echo "ssh:  unreachable"
@@ -192,3 +192,17 @@ clean:
 distclean: clean
 	rm -rf golden
 	echo "==> golden image removed"
+
+# ------------------------------------------------------------- dev loop
+
+# Push the working tree into the VM. Excludes the images and run state so this
+# stays a fast round-trip.
+sync:
+	@tar czf - -C $(CURDIR)/.. --exclude=.git --exclude=testenv/golden \
+	   --exclude=testenv/run --exclude='*.qcow2' --exclude='*.img' . \
+	 | ssh $(SSH_OPTS) $(VM) 'rm -rf ~/homelab && mkdir -p ~/homelab && tar xzf - -C ~/homelab'
+	@echo "==> synced working tree to ~/homelab in the VM"
+
+# Sync, then run the conformance suite inside the VM.
+test: sync
+	@ssh $(SSH_OPTS) $(VM) 'cd ~/homelab && ./tests/conformance.sh $(APP)'

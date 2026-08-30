@@ -42,7 +42,7 @@ fs_setup:
     overwrite: false
 
 mounts:
-  - [ /dev/vdb1, /var/lib/docker, ext4, "defaults,nofail", "0", "2" ]
+  - [ /dev/vdb1, /data, ext4, "defaults,nofail", "0", "2" ]
 
 package_update: true
 packages:
@@ -85,6 +85,15 @@ write_files:
       }
 
 runcmd:
+  # Docker keeps images in /var/lib/docker, but containerd keeps its snapshots
+  # -- which is where the bulk of an image build actually lands -- in
+  # /var/lib/containerd. Moving only the former still fills the ~3 GB root.
+  # Bind both onto the big disk. Done here rather than via cloud-init `mounts`
+  # because the bind sources only exist after /data itself is mounted.
+  - [ mkdir, -p, /data/docker, /data/containerd, /var/lib/docker, /var/lib/containerd ]
+  - [ mount, --bind, /data/docker, /var/lib/docker ]
+  - [ mount, --bind, /data/containerd, /var/lib/containerd ]
+  - [ bash, -c, "printf '/data/docker /var/lib/docker none bind 0 0\\n/data/containerd /var/lib/containerd none bind 0 0\\n' >> /etc/fstab" ]
   - [ systemctl, enable, --now, nftables ]
   - [ bash, -c, "echo 'homelab testenv ready' > /etc/motd" ]
 
