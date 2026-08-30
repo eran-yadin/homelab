@@ -41,14 +41,35 @@ need_docker() {
     die "$APP_NAME needs docker: $(dk_reason)"
 }
 
+# Services that do one job and exit (fixing volume ownership, running a
+# migration). They are declared in app.conf as oneshot="name ..." and are
+# excluded from the counts, because a completed init exiting 0 is success --
+# counting it would leave every such app permanently "degraded".
+_is_oneshot() {
+    local svc="$1" o
+    for o in ${APP_ONESHOT:-}; do [ "$o" = "$svc" ] && return 0; done
+    return 1
+}
+
+# service|state|status, one line per container, one-shots removed
 _containers() {
     if [ "${#DK[@]}" -eq 0 ]; then return 0; fi
     "${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
-        --format '{{.State}}|{{.Status}}' 2>/dev/null || true
+        --format '{{.Label "com.docker.compose.service"}}|{{.State}}|{{.Status}}' \
+        2>/dev/null | while IFS='|' read -r svc rest; do
+            _is_oneshot "$svc" || printf '%s|%s\n' "$svc" "$rest"
+        done
 }
 
-_service_count() { dc_ro config --services 2>/dev/null | grep -c . || echo 0; }
-_running_count() { _containers | grep -c '^running|' || true; }
+_service_count() {
+    local n=0 svc
+    while read -r svc; do
+        [ -n "$svc" ] || continue
+        _is_oneshot "$svc" || n=$((n+1))
+    done < <(dc_ro config --services 2>/dev/null)
+    printf '%s' "$n"
+}
+_running_count() { _containers | awk -F'|' '$2=="running"' | grep -c . || true; }
 _has_build()     { grep -qE '^[[:space:]]+build:' "$COMPOSE_FILE"; }
 
 case "$VERB" in
@@ -154,7 +175,7 @@ status)
         fi
         exit 0
     fi
-    running="$(printf '%s\n' "$lines" | grep -c '^running|' || true)"
+    running="$(printf '%s\n' "$lines" | awk -F'|' '$2=="running"' | grep -c . || true)"
     unhealthy="$(printf '%s\n' "$lines" | grep -c 'unhealthy' || true)"
     healthy="$(printf '%s\n' "$lines" | grep -c '(healthy)' || true)"
     starting="$(printf '%s\n' "$lines" | grep -c 'health: starting' || true)"

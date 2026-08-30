@@ -1,5 +1,23 @@
 services:
+  # Docker populates a fresh named volume from the image, so /config arrives
+  # owned by root. The app runs as PUID, and SQLite needs to create -wal and
+  # -shm files *in that directory* -- not just write the .sqlite3 file -- so a
+  # root-owned directory fails with "attempt to write a readonly database".
+  # The image's own init chowns the database file but not its directory.
+  init-perms:
+    image: alpine:3
+    # One line on purpose: with a YAML folded scalar (>), a more-indented
+    # continuation line keeps its newline rather than folding to a space,
+    # which splits the command in half and gives `sh: syntax error`.
+    command: ["sh", "-c", "chown -R ${MANYFOLD_PUID:-1000}:${MANYFOLD_PGID:-1000} /config && chmod 0755 /config"]
+    volumes:
+      - config:/config
+    restart: "no"
+
   manyfold:
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
     # "solo" = app + postgres + redis in one container. The split image
     # (ghcr.io/manyfold3d/manyfold) is the alternative if this ever needs to
     # scale, but it means running a second database on the box.
@@ -18,7 +36,13 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:3214 >/dev/null || exit 1"]
+      # Three things this had to get right, all found by running it:
+      #   - the image has no curl, only wget
+      #   - "localhost" resolves to ::1 in here and the app is IPv4-only,
+      #     so it must be 127.0.0.1
+      #   - "/" 302-redirects to the login page and wget follows it into a
+      #     loop; /health is the endpoint that answers 200
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "-T", "5", "http://127.0.0.1:3214/health"]
       interval: 30s
       timeout: 10s
       retries: 5
