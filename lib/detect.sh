@@ -30,13 +30,16 @@ detect_host() {
     DET_CPUS="$(nproc 2>/dev/null || echo 1)"
     DET_RAM_MB="$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)"
     DET_DISK_FREE_MB="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
-    DET_VIRT="$(systemd-detect-virt 2>/dev/null || echo unknown)"
+    # systemd-detect-virt prints "none" AND exits 1 on bare metal, so a naive
+    # `|| echo unknown` appends a second line instead of substituting.
+    DET_VIRT="$(systemd-detect-virt 2>/dev/null || true)"
+    if [ -z "$DET_VIRT" ]; then DET_VIRT=unknown; fi
 
     # --- gpu ------------------------------------------------------------
     DET_GPU=none
     if [ -e /dev/dri/renderD128 ]; then DET_GPU=intel-quicksync; fi
     if have lspci && lspci 2>/dev/null | grep -qi 'vga.*nvidia\|3d.*nvidia'; then
-        DET_GPU="${DET_GPU/none/}nvidia"
+        if [ "$DET_GPU" = none ]; then DET_GPU=nvidia; else DET_GPU="$DET_GPU,nvidia"; fi
     fi
     [ -z "$DET_GPU" ] && DET_GPU=none
 
@@ -73,9 +76,15 @@ detect_host() {
     [ -z "$DET_MESH" ] && DET_MESH=none
 
     DET_TESTENV=no
-    [ -f "$HOMELAB_ETC/testenv" ] && DET_TESTENV=yes
+    if [ -f "$HOMELAB_ETC/testenv" ]; then DET_TESTENV=yes; fi
     DET_APPLY_ALLOWED=no
-    [ -f "$HOMELAB_APPLY_MARKER" ] && DET_APPLY_ALLOWED=yes
+    if [ -f "$HOMELAB_APPLY_MARKER" ]; then DET_APPLY_ALLOWED=yes; fi
+    # Must not end on a bare `[ ... ] && ...`: as the final statement of a
+    # function that returns its status, a false test makes detect_host return 1
+    # and `set -e` in the caller kills the whole command. That is exactly what
+    # happened -- `homelab detect` exited 1 with no output on every host that
+    # lacked the allow-apply marker.
+    return 0
 }
 
 detect_print() {

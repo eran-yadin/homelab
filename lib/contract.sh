@@ -33,10 +33,16 @@ emit_status() {  # emit_status <state> <installed:true|false> [k=v ...]
     local extra="" kv k v
     for kv in "$@"; do
         k="${kv%%=*}"; v="${kv#*=}"
-        case "$v" in
-            true|false|[0-9]*) extra+=",\"$k\":$v" ;;
-            *) extra+=",\"$k\":\"$(json_escape "$v")\"" ;;
-        esac
+        # Emit bare only for real JSON literals. A glob like [0-9]* also
+        # matches "3/3", which produces invalid JSON that every consumer then
+        # fails to parse.
+        if [ "$v" = true ] || [ "$v" = false ]; then
+            extra+=",\"$k\":$v"
+        elif [ -n "$v" ] && [ -z "${v//[0-9]/}" ]; then
+            extra+=",\"$k\":$v"
+        else
+            extra+=",\"$k\":\"$(json_escape "$v")\""
+        fi
     done
     printf '{"app":"%s","kind":"%s","state":"%s","installed":%s%s}\n' \
         "$APP_NAME" "${APP_KIND:-unknown}" "$state" "$installed" "$extra"

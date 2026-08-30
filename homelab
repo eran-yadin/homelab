@@ -31,6 +31,7 @@ usage: homelab <command> [app] [options]
   status [app] [--all]   current state (one JSON line per app with --json)
 
   install <app>          download + start
+  download <app>         fetch/build only, do not start
   start|stop <app>
   update <app>
   delete <app> [--purge] --purge also destroys its data
@@ -213,7 +214,10 @@ cmd_simple() {  # start|stop|update
     local verb="$1" n="${ARGS[0]:?usage: homelab $1 <app>}"
     banner_mode
     set +e; app_run_verb "$n" "$verb"; local rc=$?; set -e
-    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || exit $rc
+    # Propagate EX_NOOP rather than flattening it to 0. "already running" is
+    # part of the contract, and callers (the hub, the conformance suite) need
+    # to be able to tell it apart from "I just did the work".
+    exit $rc
 }
 
 cmd_delete() {
@@ -231,7 +235,7 @@ cmd_delete() {
     set +e
     if [ "$PURGE" = 1 ]; then app_run_verb "$n" delete --purge; else app_run_verb "$n" delete; fi
     local rc=$?; set -e
-    [ $rc = 0 ] || [ $rc = "$EX_NOOP" ] || exit $rc
+    exit $rc
 }
 
 cmd_backup() {
@@ -254,7 +258,7 @@ case "$CMD" in
     info)    cmd_info ;;
     status)  cmd_status ;;
     install) cmd_install ;;
-    start|stop|update) cmd_simple "$CMD" ;;
+    download|start|stop|update) cmd_simple "$CMD" ;;
     delete|remove) cmd_delete ;;
     backup)  cmd_backup ;;
     restore) cmd_restore ;;

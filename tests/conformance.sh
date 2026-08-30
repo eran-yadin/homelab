@@ -33,11 +33,29 @@ fail() { FAIL=$((FAIL+1)); FAILED_NAMES+=("$1"); printf '  %sFAIL%s %s\n' "$R" "
          [ $# -gt 1 ] && printf '       %s%s%s\n' "$D" "$2" "$Z"; }
 skip() { SKIP=$((SKIP+1)); printf '  %sSKIP%s %s\n' "$Y" "$Z" "$1"; }
 
-# run a verb, echo its exit code, keep output in $OUT
+# Run a verb; leaves its exit code in $RC and its output in $OUT.
+# Deliberately NOT `rc="$(verb ...)"`: command substitution runs in a subshell,
+# so anything the function assigns is lost the moment it returns.
+RC=0; OUT=""
 verb() {
     local app="$1" v="$2"; shift 2
+    set +e
     OUT="$("$HL" "$v" "$app" "$@" --apply 2>&1)"
-    printf '%s' "$?"
+    RC=$?
+    set -e
+}
+
+# assert the verb succeeded or was a legitimate no-op
+expect_ok() {  # expect_ok <label>
+    if [ "$RC" = 0 ] || [ "$RC" = 2 ]; then pass "$1 rc=$RC"
+    else fail "$1 rc=$RC" "$(printf '%s' "$OUT" | tail -3)"; fi
+}
+
+# assert the verb reported "nothing to do"
+expect_noop() {  # expect_noop <label>
+    if [ "$RC" = 2 ]; then pass "$1 is idempotent (rc=2)"
+    elif [ "$RC" = 0 ]; then fail "$1 re-ran instead of reporting no-op (rc=0)" "$(printf '%s' "$OUT" | tail -3)"
+    else fail "$1 rc=$RC on second run" "$(printf '%s' "$OUT" | tail -3)"; fi
 }
 
 status_json() { "$HL" status "$1" --json 2>/dev/null; }
@@ -80,51 +98,40 @@ test_app() {
     else fail "dry run changed state" "before=$before after=$after"; fi
 
     # --- download -------------------------------------------------------
-    rc="$(verb "$app" download)"
-    [ "$rc" = 0 ] || [ "$rc" = 2 ] && pass "download rc=$rc" || fail "download rc=$rc" "$OUT"
+    verb "$app" download;              expect_ok "download"
 
     # --- start ----------------------------------------------------------
-    rc="$(verb "$app" start)"
-    [ "$rc" = 0 ] || [ "$rc" = 2 ] && pass "start rc=$rc" || fail "start rc=$rc" "$OUT"
+    verb "$app" start;                 expect_ok "start"
     sleep 3
     assert_json "after start" "$(status_json "$app")" '^(running|degraded)$'
 
     # --- start again must be a no-op ------------------------------------
-    rc="$(verb "$app" start)"
-    if [ "$rc" = 2 ]; then pass "start is idempotent (rc=2)"
-    elif [ "$rc" = 0 ]; then fail "start ran again instead of reporting no-op (rc=0)" "$OUT"
-    else fail "start rc=$rc on second run" "$OUT"; fi
+    verb "$app" start;                 expect_noop "start"
 
     # --- stop -----------------------------------------------------------
-    rc="$(verb "$app" stop)"
-    [ "$rc" = 0 ] || [ "$rc" = 2 ] && pass "stop rc=$rc" || fail "stop rc=$rc" "$OUT"
+    verb "$app" stop;                  expect_ok "stop"
     assert_json "after stop" "$(status_json "$app")" '^(stopped|absent|downloaded)$'
 
     # --- stop again must be a no-op -------------------------------------
-    rc="$(verb "$app" stop)"
-    if [ "$rc" = 2 ]; then pass "stop is idempotent (rc=2)"
-    else fail "stop not idempotent (rc=$rc)" "$OUT"; fi
+    verb "$app" stop;                  expect_noop "stop"
 
     # --- restart + update ------------------------------------------------
-    rc="$(verb "$app" start)"
-    [ "$rc" = 0 ] || [ "$rc" = 2 ] && pass "restart rc=$rc" || fail "restart rc=$rc" "$OUT"
-    rc="$(verb "$app" update)"
-    [ "$rc" = 0 ] || [ "$rc" = 2 ] && pass "update rc=$rc" || fail "update rc=$rc" "$OUT"
+    verb "$app" start;                 expect_ok "restart"
+    verb "$app" update;                expect_ok "update"
 
     # --- delete --purge --------------------------------------------------
     if [ "$app" = docker ]; then
         skip "delete: refusing to uninstall docker mid-suite (other apps need it)"
-        return
+        return 0
     fi
-    rc="$(printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1; echo $?)"
-    if [ "$rc" = 0 ] || [ "$rc" = 2 ]; then pass "delete --purge rc=$rc"
-    else fail "delete --purge rc=$rc"; fi
+    set +e
+    OUT="$(printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply 2>&1)"; RC=$?
+    set -e
+    expect_ok "delete --purge"
     assert_json "after purge" "$(status_json "$app")" '^(absent|downloaded)$'
 
     # --- delete again must be a no-op ------------------------------------
-    rc="$(verb "$app" delete)"
-    if [ "$rc" = 2 ]; then pass "delete is idempotent (rc=2)"
-    else fail "delete not idempotent (rc=$rc)" "$OUT"; fi
+    verb "$app" delete;                expect_noop "delete"
 }
 
 APPS="${1:-}"

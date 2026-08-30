@@ -14,10 +14,14 @@ Early. What exists today:
 
 - [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
 - [x] Verified backup of the live paperless instance (see below)
-- [ ] `homelab` CLI — detect / list / install / start / stop / update / delete
-- [ ] app lifecycle contract + catalog
+- [x] **app lifecycle contract** + catalog — see [docs/CONTRACT.md](docs/CONTRACT.md)
+- [x] **`homelab` CLI** — detect / list / info / install / start / stop / update / delete / status / backup / restore
+- [x] inherited implementations for `kind=compose` and `kind=systemd`
+- [x] apps: `docker`, `paperless`, `netmon`
+- [x] `tests/conformance.sh` — drives every app through its whole lifecycle
 - [ ] hub web front-end
-- [ ] backup + migrate
+- [ ] `migrate` from the old server
+- [ ] more apps: caddy, mesh (tailscale/headscale), navidrome, transcribe, jellyfin
 
 See [docs/PLAN.md](docs/PLAN.md) for the full design.
 
