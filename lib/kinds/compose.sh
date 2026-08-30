@@ -120,6 +120,28 @@ start)
             fi
         fi
     done
+    # Containers can already exist under this project name without having been
+    # created from THIS compose file -- nucserver runs paperless as project
+    # "paperless" from its own docker-compose.yml. Recreating those from our
+    # file would hand a running database a freshly generated password and a
+    # different volume layout. Compose records the file it was created from;
+    # compare it.
+    existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
+        --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
+    if [ -n "$existing_cfg" ] && [ "$existing_cfg" != "$COMPOSE_FILE" ]; then
+        err "$APP_NAME already has containers on this host, but they were created"
+        err "    from a different compose file:"
+        err "        theirs: $existing_cfg"
+        err "        ours:   $COMPOSE_FILE"
+        err "    Starting would recreate them from ours -- new environment, new"
+        err "    generated secrets, possibly different volumes. Refusing."
+        err ""
+        err "    To take it over deliberately, back it up first, then:"
+        err "        homelab backup $APP_NAME <dir> --apply"
+        err "        docker compose -f $existing_cfg down"
+        err "        homelab restore $APP_NAME <dir> --apply && homelab start $APP_NAME --apply"
+        exit 1
+    fi
     preflight_ports ${APP_PORTS:-}
     total="$(_service_count)"
     running="$(_running_count)"
