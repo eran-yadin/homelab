@@ -93,10 +93,19 @@ render_env() {
 
 # What is listening on a TCP port? Prints a short description, or nothing.
 port_holder() {
-    local p="$1"
-    $SUDO ss -tlnpH 2>/dev/null \
+    local p="$1" out
+    # `ss -p` needs root to name the owning process, but listing what is bound
+    # does not. Try privileged only via `sudo -n`, so this can never stop on a
+    # password prompt, and fall back to the unprivileged view -- which still
+    # tells us the port is taken, just not by whom.
+    if [ -z "$SUDO" ]; then
+        out="$(ss -tlnpH 2>/dev/null || true)"
+    else
+        out="$(sudo -n ss -tlnpH 2>/dev/null || ss -tlnH 2>/dev/null || true)"
+    fi
+    printf '%s\n' "$out" \
         | awk -v pat=":$p\$" '$4 ~ pat {print; exit}' \
-        | sed -n 's/.*users:((\"\([^"]*\)\".*/\1/p'
+        | sed -n 's/.*users:((\"\([^"]*\)\".*/\1/p;t;s/.*/something/p'
 }
 
 # Refuse to start if something else already holds a port we need. A port held
@@ -134,7 +143,7 @@ preflight_conflicts() {
         kind="${spec%%:*}"; val="${spec#*:}"
         case "$kind" in
             unit)
-                if have systemctl && $SUDO systemctl is-active --quiet "$val" 2>/dev/null; then
+                if have systemctl && systemctl is-active --quiet "$val" 2>/dev/null; then
                     err "$APP_NAME cannot run alongside $val, which is active."
                     err "    Stop it first:  sudo systemctl disable --now $val"
                     exit 1

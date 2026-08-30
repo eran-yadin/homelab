@@ -10,7 +10,7 @@ ensure_state_dir
 env_file="$APP_STATE/.env"
 if ! $SUDO test -f "$env_file"; then
     bind="0.0.0.0"
-    if $SUDO ss -tulnH 2>/dev/null | grep -qE '127\.0\.0\.5[34]:53'; then
+    if ss -tulnH 2>/dev/null | grep -qE '127\.0\.0\.5[34]:53'; then
         if [ -n "${DET_IP:-}" ]; then
             bind="$DET_IP"
             warn "systemd-resolved already holds :53 on loopback"

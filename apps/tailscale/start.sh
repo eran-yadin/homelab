@@ -4,7 +4,7 @@ set -euo pipefail
 . "$HOMELAB_ROOT/lib/contract.sh"
 have tailscale || die "tailscale is not installed"
 
-if ! $SUDO systemctl is-active --quiet tailscaled 2>/dev/null; then
+if ! systemctl is-active --quiet tailscaled 2>/dev/null; then
     log "enabling tailscaled"
     run $SUDO systemctl enable --now tailscaled
 fi

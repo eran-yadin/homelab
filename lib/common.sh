@@ -135,7 +135,7 @@ dk_resolve() {
 dk_reason() {
     if ! have docker; then
         echo "docker is not installed"
-    elif have systemctl && ! $SUDO systemctl is-active --quiet docker 2>/dev/null; then
+    elif have systemctl && ! systemctl is-active --quiet docker 2>/dev/null; then
         echo "the docker daemon is installed but not running"
     else
         echo "cannot reach the docker socket - you were just added to the 'docker' group, which needs a new login session"

@@ -18,6 +18,7 @@ JSON=0
 ALL=0
 PURGE=0
 MIGRATE_FROM=""
+DEPLOY_FROM=""
 export HOMELAB_APPLY
 
 usage() {
@@ -33,8 +34,10 @@ usage: homelab <command> [app] [options]
 
   setup                  pick apps from the store and install them (start here
                          on a new machine)
-  deploy                 copy this working tree to /opt/homelab, which is the
-                         copy the hub reads. Run after adding or editing apps.
+  deploy [--from <dir>]  copy a working tree to /opt/homelab, which is the copy
+                         the hub reads. Run after adding or editing apps.
+                         --from lets the deployed copy update itself from a
+                         checkout, which is what the hub's sudoers rule allows.
   install <app>...       download + start, one or more apps
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
@@ -69,7 +72,7 @@ while [ $# -gt 0 ]; do
         --json)   JSON=1 ;;
         --all)    ALL=1 ;;
         --purge)  PURGE=1 ;;
-        --from)   shift; MIGRATE_FROM="${1:-}" ;;
+        --from)   shift; MIGRATE_FROM="${1:-}"; DEPLOY_FROM="${1:-}" ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -353,14 +356,17 @@ cmd_setup() {
 # effect of `update hub`, which is not a thing anyone would guess.
 cmd_deploy() {
     local dest=/opt/homelab
+    local src="${DEPLOY_FROM:-$HOMELAB_ROOT}"
     banner_mode
-    if [ "$HOMELAB_ROOT" = "$dest" ]; then
+    src="$(cd "$src" 2>/dev/null && pwd)" || die "no such directory: ${DEPLOY_FROM:-$HOMELAB_ROOT}"
+    [ -f "$src/homelab" ] || die "$src does not look like a homelab checkout"
+    if [ "$src" = "$dest" ]; then
         ok "already running from $dest - nothing to copy"
         exit $EX_NOOP
     fi
-    log "deploying $HOMELAB_ROOT -> $dest"
+    log "deploying $src -> $dest"
     run $SUDO mkdir -p "$dest"
-    run_sh "$SUDO tar -cf - -C '$HOMELAB_ROOT' --exclude=.git --exclude=testenv/golden --exclude=testenv/run . | $SUDO tar -xf - -C '$dest'"
+    run_sh "$SUDO tar -cf - -C '$src' --exclude=.git --exclude=testenv/golden --exclude=testenv/run . | $SUDO tar -xf - -C '$dest'"
     run $SUDO chmod 0755 "$dest/homelab"
     run $SUDO ln -sfn "$dest/homelab" /usr/local/bin/homelab
 
@@ -374,7 +380,7 @@ cmd_deploy() {
         [ $hrc = 0 ] || [ $hrc = "$EX_NOOP" ] || warn "hub file refresh returned $hrc"
     fi
 
-    if have systemctl && $SUDO systemctl is-active --quiet homelab-hub 2>/dev/null; then
+    if have systemctl && systemctl is-active --quiet homelab-hub 2>/dev/null; then
         log "restarting the hub"
         run $SUDO systemctl restart homelab-hub
     fi

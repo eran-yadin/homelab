@@ -20,9 +20,9 @@ need_systemd() {
     have systemctl || die "$APP_NAME needs systemd, which this host does not use"
 }
 
-unit_exists()  { $SUDO systemctl cat "$UNIT" >/dev/null 2>&1; }
-unit_active()  { $SUDO systemctl is-active  --quiet "$UNIT" 2>/dev/null; }
-unit_enabled() { $SUDO systemctl is-enabled --quiet "$UNIT" 2>/dev/null; }
+unit_exists()  { systemctl cat "$UNIT" >/dev/null 2>&1; }
+unit_active()  { systemctl is-active  --quiet "$UNIT" 2>/dev/null; }
+unit_enabled() { systemctl is-enabled --quiet "$UNIT" 2>/dev/null; }
 
 case "$VERB" in
 
@@ -124,8 +124,8 @@ delete)
 status)
     if ! have systemctl; then emit_status absent false detail="no systemd"; exit 0; fi
     if ! unit_exists; then emit_status absent false; exit 0; fi
-    sub="$($SUDO systemctl show -p SubState --value "$UNIT" 2>/dev/null || echo unknown)"
-    res="$($SUDO systemctl show -p Result   --value "$UNIT" 2>/dev/null || echo unknown)"
+    sub="$(systemctl show -p SubState --value "$UNIT" 2>/dev/null || echo unknown)"
+    res="$(systemctl show -p Result   --value "$UNIT" 2>/dev/null || echo unknown)"
     enabled=false; if unit_enabled; then enabled=true; fi
     if unit_active; then
         state=running
@@ -154,7 +154,7 @@ backup)
         run_sh "$SUDO tar -czf '$dest/path-$n.tar.gz' -C '$(dirname "$p")' '$(basename "$p")'"
     done
     if unit_exists; then
-        run_sh "$SUDO systemctl cat '$UNIT' > '$dest/$UNIT' 2>/dev/null || true"
+        run_sh "systemctl cat '$UNIT' > '$dest/$UNIT' 2>/dev/null || true"
     fi
     ok "$APP_NAME: backed up to $dest"
     ;;
