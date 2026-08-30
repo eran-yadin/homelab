@@ -86,6 +86,21 @@ or a fat-fingered command from touching production. The stronger protection is
 that the VM holds no credentials to anything: `make up` generates a throwaway
 SSH keypair in `run/`, and your real keys are never copied in.
 
+## Forwarded ports stall during big downloads
+
+While the VM is pulling a large image or running a build that downloads
+packages, the forwarded ports (the hub, app UIs) can appear to hang from the
+host. The TCP connection is accepted and the service answers fine *inside* the
+guest -- it is the path between them that is starved.
+
+QEMU's user-mode networking is single-threaded and each `hostfwd` listens with
+a backlog of 1, so a guest saturating its NIC crowds out host-to-guest
+connections. SSH usually survives because it is low-bandwidth and already
+established.
+
+It clears on its own when the download finishes. Nothing to fix; a real server
+has no SLIRP in the path.
+
 ## Known limits
 
 - **No GPU.** The NUC's HD 620 QuickSync transcoding can't be tested here.

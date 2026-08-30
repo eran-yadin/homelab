@@ -358,8 +358,19 @@ cmd_deploy() {
     run_sh "$SUDO tar -cf - -C '$HOMELAB_ROOT' --exclude=.git --exclude=testenv/golden --exclude=testenv/run . | $SUDO tar -xf - -C '$dest'"
     run $SUDO chmod 0755 "$dest/homelab"
     run $SUDO ln -sfn "$dest/homelab" /usr/local/bin/homelab
+
+    # The hub serves its own copy of server.py and index.html from
+    # /opt/homelab-hub. Syncing the engine and restarting the service is not
+    # enough -- the browser would keep getting the old page, which looks
+    # exactly like the fix not working. Refresh the hub's files too.
+    if [ -d /opt/homelab-hub ]; then
+        log "refreshing the hub's own files"
+        set +e; app_run_verb hub download; local hrc=$?; set -e
+        [ $hrc = 0 ] || [ $hrc = "$EX_NOOP" ] || warn "hub file refresh returned $hrc"
+    fi
+
     if have systemctl && $SUDO systemctl is-active --quiet homelab-hub 2>/dev/null; then
-        log "restarting the hub so it picks up the new catalog"
+        log "restarting the hub"
         run $SUDO systemctl restart homelab-hub
     fi
     ok "deployed"
