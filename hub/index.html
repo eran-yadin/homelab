@@ -514,11 +514,10 @@
   .btn-copy { background: var(--bg3); border-color: var(--border2); color: var(--muted); }
   .btn-copy:hover { color: var(--text); border-color: var(--amber); }
 
-  /* categories the catalog can produce */
-  .svc-badge.base      { background: rgba(52,152,219,0.12); color: var(--blue);   border-color: rgba(52,152,219,0.3); }
-  .svc-badge.documents { background: rgba(26,188,156,0.12); color: var(--teal);   border-color: rgba(26,188,156,0.3); }
-  .svc-badge.network   { background: rgba(155,89,182,0.12); color: var(--purple); border-color: rgba(155,89,182,0.3); }
-  .svc-badge.misc      { background: rgba(90,106,136,0.12); color: var(--muted);  border-color: rgba(90,106,136,0.3); }
+  /* Category badge colours are set inline from groupStyle() in the script, so
+     a category added later is coloured automatically rather than needing a
+     new rule here. The .svc-badge.<name> rules above are the originals and
+     are simply overridden. */
 
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(7,8,13,0.85); backdrop-filter: blur(4px);
@@ -1168,6 +1167,35 @@ async function waitForServer() {
 
 /* ----------------------------------------------------------------- cards */
 
+// One hue per category. Named hues for what the catalog has today, chosen to
+// stay apart on a dark background; anything else gets a stable hue from its
+// name, so a category added later is still coloured without touching this.
+const GROUP_HUE = {
+  base: 205, documents: 168, files: 190, home: 140,
+  media: 280, network: 250, ops: 30, security: 355,
+  gaming: 315, system: 212, ai: 85, misc: 220,
+};
+
+function hueFor(name) {
+  if (GROUP_HUE[name] !== undefined) return GROUP_HUE[name];
+  // FNV-1a, then spread across the wheel by the golden angle so near-identical
+  // names do not land on near-identical colours.
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.round(((h >>> 0) * 137.508) % 360);
+}
+
+function groupStyle(name) {
+  const h = hueFor(name);
+  const sat = name === 'misc' || name === 'system' ? 12 : 60;
+  return `color:hsl(${h} ${sat + 8}% 64%);` +
+         `border-color:hsl(${h} ${sat}% 46% / 0.45);` +
+         `background:hsl(${h} ${sat}% 42% / 0.14)`;
+}
+
 function buildCard(svc) {
   const url = urlFor(svc);
   const portText = svc.port ? `:${svc.port}` : 'no port';
@@ -1186,7 +1214,7 @@ function buildCard(svc) {
         <div id="dot-${svc.id}" class="status-dot unknown"></div>
       </div>
       <div class="svc-meta">
-        <span class="svc-badge ${svc.group}">${svc.group}</span>
+        <span class="svc-badge ${svc.group}" style="${groupStyle(svc.group)}">${svc.group}</span>
         <span class="svc-port mono">${portText}</span>
         <span id="status-txt-${svc.id}" class="status-text unknown">—</span>
       </div>
