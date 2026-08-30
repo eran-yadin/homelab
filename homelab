@@ -141,7 +141,11 @@ cmd_info() {
         fi
     done
     printf '%s\n' "$found"
-    printf '              %s(* = its own; the rest inherited from kind=%s)%s\n' "$C_DIM" "$APP_KIND" "$C_RST"
+    if printf '%s' "$found" | grep -q ' [a-z]*[^*] '; then
+        printf '              %s(* = its own; the rest inherited from kind=%s)%s\n' "$C_DIM" "$APP_KIND" "$C_RST"
+    else
+        printf '              %s(all implemented by the app itself)%s\n' "$C_DIM" "$C_RST"
+    fi
 }
 
 cmd_status() {

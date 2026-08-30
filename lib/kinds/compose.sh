@@ -91,7 +91,9 @@ stop)
         exit $EX_NOOP
     fi
     log "$APP_NAME: stopping"
-    dc down
+    # `stop`, not `down`: down REMOVES the containers, so a merely-stopped app
+    # then reports as absent. Tearing down is what `delete` is for.
+    dc stop
     ok "$APP_NAME: stopped"
     ;;
 
@@ -138,7 +140,14 @@ status)
     total="$(_service_count)"
     lines="$(_containers)"
     if [ -z "$lines" ]; then
-        if dc_ro images -q 2>/dev/null | grep -q .; then
+        # `compose images` only lists images belonging to EXISTING containers,
+        # so after a `down` it is empty even though every image is still
+        # present locally. Ask the daemon about the images themselves.
+        have_img=0
+        for i in $(dc_ro config --images 2>/dev/null || true); do
+            if "${DK[@]}" image inspect "$i" >/dev/null 2>&1; then have_img=1; break; fi
+        done
+        if [ "$have_img" = 1 ]; then
             emit_status downloaded false containers="0/$total"
         else
             emit_status absent false containers="0/$total"

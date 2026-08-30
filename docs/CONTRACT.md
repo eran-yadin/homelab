@@ -56,8 +56,8 @@ Required keys: `app`, `kind`, `state`, `installed`.
 | state | meaning |
 |---|---|
 | `absent` | not installed |
-| `downloaded` | images/files present, not running |
-| `stopped` | installed, not running |
+| `downloaded` | images/files present, nothing created yet |
+| `stopped` | containers/unit exist but are not running |
 | `running` | up and serving |
 | `degraded` | partially up, or unhealthy |
 
