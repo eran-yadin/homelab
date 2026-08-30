@@ -39,6 +39,13 @@ app_state_dir() { printf '%s/apps/%s' "$HOMELAB_DATA" "$1"; }
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
+# Who should own the files we create? When the hub runs us as
+# `sudo homelab ...`, id -u is 0, and chowning state to root would make the
+# generated .env unreadable to the human who later runs the CLI directly --
+# and to `docker compose`, which reads it as the calling user.
+owner_user()  { printf '%s' "${SUDO_USER:-$(id -un)}"; }
+owner_group() { id -gn "$(owner_user)" 2>/dev/null || printf '%s' "$(owner_user)"; }
+
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # ------------------------------------------------------------- the dry-run gate

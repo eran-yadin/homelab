@@ -23,7 +23,7 @@ ensure_state_dir() {
     # Owned by whoever drives the CLI, not root: `docker compose --env-file`
     # reads .env as the calling user, so a root-owned 0600 file is unreadable
     # to it and compose silently falls back to empty values.
-    run $SUDO chown "$(id -u):$(id -g)" "$APP_STATE"
+    run $SUDO chown "$(owner_user):$(owner_group)" "$APP_STATE"
     run $SUDO chmod 0700 "$APP_STATE"
 }
 
@@ -82,7 +82,7 @@ render_env() {
     done
     log "generating $out (secrets are created once and kept)"
     printf '%s\n' "$content" | run_write "$out" 0600
-    run $SUDO chown "$(id -u):$(id -g)" "$out"
+    run $SUDO chown "$(owner_user):$(owner_group)" "$out"
 }
 
 compose_env_file() { printf '%s/.env' "$APP_STATE"; }

@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""NUC Homelab Hub — Backend API"""
+
+from flask import Flask, jsonify, request, send_from_directory
+import subprocess, socket, os, time, json
+import psutil
+import socket
+
+app = Flask(__name__, static_folder=".")
+
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+SERVER_IP = get_local_ip()
+
+SERVICES = [
+    {
+        "id": "amp",
+        "name": "AMP Panel",
+        "desc": "Game Server Manager",
+        "url": f"http://{SERVER_IP}:8080",
+        "port": 8080,
+        "type": "systemd",
+        "service": "ampinstmgr",
+        "group": "gaming",
+    },
+    {
+        "id": "navidrome",
+        "name": "Navidrome",
+        "desc": "Music Server",
+        "url": f"http://{SERVER_IP}:4533",
+        "port": 4533,
+        "type": "docker",
+        "container": "navidrome",
+        "group": "media",
+    },
+    {
+        "id": "feishin",
+        "name": "Feishin",
+        "desc": "Music Player UI",
+        "url": f"http://{SERVER_IP}:9180",
+        "port": 9180,
+        "type": "docker",
+        "container": "feishin",
+        "group": "media",
+    },
+    {
+        "id": "paperless",
+        "name": "Paperless-ngx",
+        "desc": "Document Management",
+        "url": f"http://{SERVER_IP}:8010",
+        "port": 8010,
+        "type": "compose",
+        "compose_dir": os.path.expanduser("~/paperless"),
+        "group": "productivity",
+    },
+    {
+        "id": "cockpit",
+        "name": "Cockpit",
+        "desc": "System Monitor",
+        "url": f"http://{SERVER_IP}:9090",
+        "port": 9090,
+        "type": "systemd",
+        "service": "cockpit.socket",
+        "group": "system",
+    },
+    {
+        "id": "ut99",
+        "name": "UT99 Server",
+        "desc": "Unreal Tournament 1999",
+        "url": None,
+        "port": 7777,
+        "type": "systemd",
+        "service": "ut99",
+        "group": "gaming",
+    },
+    {
+    	"id": "transcribe",
+    	"name": "Transcribe",
+   	"desc": "Transcribe mp3 to text",
+   	"url": f"http://{SERVER_IP}:8011",
+    	"port": 8011,
+    	"type": "compose",
+    	"compose_dir": "/opt/transcribe",
+    	"group": "productivity",
+    },
+    {
+    	"id": "netmon",
+    	"name": "Netmon",
+    	"desc": "Network Quality Monitor",
+    	"url": None,
+    	"port": None,
+    	"type": "systemd",
+    	"service": "netmon",
+    	"group": "system",
+    },
+]
+
+def check_port(host, port, timeout=1):
+    try:
+        s = socket.create_connection((host, port), timeout=timeout)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+def get_service_status(svc):
+    port_up = check_port("127.0.0.1", svc["port"]) if svc.get("port") else None
+
+    active = False
+    if svc["type"] == "systemd":
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", svc["service"]],
+                capture_output=True, text=True, timeout=3
+            )
+            active = r.stdout.strip() == "active"
+        except Exception:
+            pass
+    elif svc["type"] == "docker":
+        try:
+            r = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", svc["container"]],
+                capture_output=True, text=True, timeout=3
+            )
+            active = r.stdout.strip() == "true"
+        except Exception:
+            pass
+    elif svc["type"] == "compose":
+        try:
+            r = subprocess.run(
+                ["docker", "compose", "-f",
+                 os.path.join(svc["compose_dir"], "docker-compose.yml"),
+                 "ps", "--status", "running"],
+                capture_output=True, text=True, timeout=5
+            )
+            active = "running" in r.stdout.lower() or r.returncode == 0 and len(r.stdout.strip().splitlines()) > 1
+        except Exception:
+            pass
+
+    return {"id": svc["id"], "running": active, "reachable": port_up}
+
+@app.route("/api/config")
+def api_config():
+    safe = []
+    for s in SERVICES:
+        safe.append({k: v for k, v in s.items() if k not in ("service", "container", "compose_dir")})
+    return jsonify(safe)
+
+@app.route("/api/status")
+def api_status():
+    statuses = [get_service_status(s) for s in SERVICES]
+
+    cpu = psutil.cpu_percent(interval=0.5)
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    uptime_secs = int(time.time() - psutil.boot_time())
+    uptime_str = f"{uptime_secs // 3600}h {(uptime_secs % 3600) // 60}m"
+
+    temps = {}
+    try:
+        t = psutil.sensors_temperatures()
+        if t:
+            flat = [x.current for v in t.values() for x in v]
+            temps["cpu"] = round(max(flat), 1)
+    except Exception:
+        pass
+
+    return jsonify({
+        "services": statuses,
+        "system": {
+            "cpu": round(cpu, 1),
+            "ram_used": round(mem.used / 1024**3, 1),
+            "ram_total": round(mem.total / 1024**3, 1),
+            "ram_pct": round(mem.percent, 1),
+            "disk_used": round(disk.used / 1024**3, 1),
+            "disk_total": round(disk.total / 1024**3, 1),
+            "disk_pct": round(disk.percent, 1),
+            "uptime": uptime_str,
+            "temps": temps,
+        },
+    })
+
+@app.route("/api/control", methods=["POST"])
+def api_control():
+    data = request.json or {}
+    svc_id = data.get("service")
+    action = data.get("action")
+
+    if action not in ("start", "stop", "restart"):
+        return jsonify({"error": "Invalid action"}), 400
+
+    svc = next((s for s in SERVICES if s["id"] == svc_id), None)
+    if not svc:
+        return jsonify({"error": "Unknown service"}), 404
+
+    try:
+        if svc["type"] == "systemd":
+            cmd = ["sudo", "systemctl", action, svc["service"]]
+        elif svc["type"] == "docker":
+            cmd = ["docker", action, svc["container"]]
+        elif svc["type"] == "compose":
+            cfile = os.path.join(svc["compose_dir"], "docker-compose.yml")
+            if action == "start":
+                cmd = ["docker", "compose", "-f", cfile, "up", "-d"]
+            elif action == "stop":
+                cmd = ["docker", "compose", "-f", cfile, "down"]
+            else:
+                cmd = ["docker", "compose", "-f", cfile, "restart"]
+
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return jsonify({"success": r.returncode == 0, "output": (r.stdout or r.stderr).strip()[:500]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/")
+def index():
+    return send_from_directory(".", "index.html")
+
+if __name__ == "__main__":
+    print("NUC Homelab Hub running at http://192.168.1.16:7070")
+    app.run(host="0.0.0.0", port=7070, debug=False)

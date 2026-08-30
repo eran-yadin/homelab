@@ -1,0 +1,24 @@
+[Unit]
+Description=homelab hub - web front end for the homelab app store
+Documentation=file:///opt/homelab/docs/CONTRACT.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@USER@@
+WorkingDirectory=/opt/homelab-hub
+Environment=HOMELAB_BIN=/opt/homelab/homelab
+ExecStart=/usr/bin/python3 /opt/homelab-hub/server.py
+Restart=always
+RestartSec=5
+
+# Note: no NoNewPrivileges here. The hub's whole job is to call
+# `sudo homelab ...`, so it must be able to gain privilege -- narrowly, via the
+# single sudoers entry in /etc/sudoers.d/homelab-hub.
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

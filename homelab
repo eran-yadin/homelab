@@ -32,7 +32,7 @@ usage: homelab <command> [app] [options]
 
   install <app>          download + start
   download <app>         fetch/build only, do not start
-  start|stop <app>
+  start|stop|restart <app>
   update <app>
   delete <app> [--purge] --purge also destroys its data
 
@@ -224,6 +224,14 @@ cmd_simple() {  # start|stop|update
     exit $rc
 }
 
+cmd_restart() {
+    local n="${ARGS[0]:?usage: homelab restart <app>}"
+    banner_mode
+    set +e; app_run_verb "$n" stop; set -e     # a stopped app is fine to "restart"
+    set +e; app_run_verb "$n" start; local rc=$?; set -e
+    exit $rc
+}
+
 cmd_delete() {
     local n="${ARGS[0]:?usage: homelab delete <app> [--purge]}"
     banner_mode
@@ -263,6 +271,7 @@ case "$CMD" in
     status)  cmd_status ;;
     install) cmd_install ;;
     download|start|stop|update) cmd_simple "$CMD" ;;
+    restart) cmd_restart ;;
     delete|remove) cmd_delete ;;
     backup)  cmd_backup ;;
     restore) cmd_restore ;;

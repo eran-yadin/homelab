@@ -1,0 +1,12 @@
+# Installed by `homelab install hub`. Do not edit by hand.
+#
+# Replaces the previous hub's rule, which was:
+#     NOPASSWD: /bin/systemctl start *, /bin/systemctl stop *, /bin/systemctl restart *
+# Those wildcards are root-equivalent: `systemctl start` accepts a path to any
+# unit file, including one the caller just wrote.
+#
+# The hub now drives everything through a single binary. That binary is still
+# powerful -- it installs software -- but it is one fixed, readable,
+# version-controlled entry point rather than an arbitrary-unit wildcard.
+@@USER@@ ALL=(ALL) NOPASSWD: /opt/homelab/homelab
+@@USER@@ ALL=(ALL) NOPASSWD: @@SYSTEMCTL@@ reboot, @@SYSTEMCTL@@ poweroff

@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NUC Homelab Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07080d;
+    --bg2: #0d1018;
+    --bg3: #111520;
+    --border: #1c2235;
+    --border2: #263047;
+    --text: #c8d4e8;
+    --muted: #5a6a88;
+    --amber: #f5a623;
+    --amber-dim: #3d2800;
+    --green: #2ecc71;
+    --green-dim: #0a2d1a;
+    --red: #e74c3c;
+    --red-dim: #2d0a0a;
+    --purple: #9b59b6;
+    --teal: #1abc9c;
+    --blue: #3498db;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    min-height: 100vh;
+    background-image:
+      linear-gradient(rgba(245,166,35,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245,166,35,0.015) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13,16,24,0.95);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .brand-icon {
+    width: 36px;
+    height: 36px;
+    border: 1.5px solid var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .brand-icon::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    background: var(--amber);
+    opacity: 0.15;
+  }
+
+  .brand-icon svg { position: relative; }
+
+  .brand-text h1 {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: #fff;
+    text-transform: uppercase;
+  }
+
+  .brand-text p {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .clock {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--amber);
+    letter-spacing: 0.1em;
+  }
+
+  .refresh-btn {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    padding: 0.35rem 0.8rem;
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+
+  .refresh-btn:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+  .sys-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 1rem 1.25rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--amber);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.6s ease;
+  }
+
+  .stat-card.loaded::before { transform: scaleX(1); }
+
+  .stat-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+
+  .stat-value span { font-size: 0.9rem; color: var(--muted); }
+
+  .stat-bar-wrap {
+    height: 3px;
+    background: var(--border);
+    margin-top: 0.6rem;
+    overflow: hidden;
+  }
+
+  .stat-bar {
+    height: 100%;
+    background: var(--amber);
+    transition: width 0.8s ease;
+  }
+
+  .stat-bar.warn { background: #e67e22; }
+  .stat-bar.danger { background: var(--red); }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+
+  .section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 1px;
+    background: var(--amber);
+  }
+
+  .filter-tabs {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .filter-tab {
+    padding: 0.25rem 0.75rem;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-tab:hover { color: var(--text); border-color: var(--border2); }
+  .filter-tab.active {
+    background: var(--amber);
+    border-color: var(--amber);
+    color: #000;
+  }
+
+  .services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .svc-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 1.25rem;
+    position: relative;
+    transition: border-color 0.2s, transform 0.15s;
+    overflow: hidden;
+  }
+
+  .svc-card:hover {
+    border-color: var(--border2);
+    transform: translateY(-1px);
+  }
+
+  .svc-card.hidden { display: none; }
+
+  .svc-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px;
+    height: 100%;
+  }
+
+  .svc-card[data-group="gaming"]::after { background: var(--purple); }
+  .svc-card[data-group="media"]::after { background: var(--teal); }
+  .svc-card[data-group="productivity"]::after { background: var(--blue); }
+  .svc-card[data-group="system"]::after { background: var(--muted); }
+  .svc-card[data-group="ai"]::after { background: var(--amber); }
+
+  .svc-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
+  .svc-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #fff;
+    text-transform: uppercase;
+  }
+
+  .svc-desc {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+    font-weight: 500;
+  }
+
+  .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+    margin-top: 4px;
+    position: relative;
+  }
+
+  .status-dot.up {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-green 2.5s infinite;
+  }
+
+  .status-dot.down { background: var(--red); }
+  .status-dot.unknown { background: var(--muted); }
+
+  @keyframes pulse-green {
+    0%, 100% { box-shadow: 0 0 4px var(--green); }
+    50% { box-shadow: 0 0 12px var(--green), 0 0 20px rgba(46,204,113,0.3); }
+  }
+
+  .svc-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .svc-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid;
+  }
+
+  .svc-badge.gaming { color: var(--purple); border-color: rgba(155,89,182,0.4); background: rgba(155,89,182,0.08); }
+  .svc-badge.media { color: var(--teal); border-color: rgba(26,188,156,0.4); background: rgba(26,188,156,0.08); }
+  .svc-badge.productivity { color: var(--blue); border-color: rgba(52,152,219,0.4); background: rgba(52,152,219,0.08); }
+  .svc-badge.system { color: var(--muted); border-color: rgba(90,106,136,0.4); background: rgba(90,106,136,0.08); }
+  .svc-badge.ai { color: var(--amber); border-color: rgba(245,166,35,0.4); background: rgba(245,166,35,0.08); }
+
+  .svc-port {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .status-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .status-text.up { color: var(--green); }
+  .status-text.down { color: var(--red); }
+  .status-text.unknown { color: var(--muted); }
+
+  .svc-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: none;
+  }
+
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .btn-start { color: var(--green); border-color: rgba(46,204,113,0.4); }
+  .btn-start:hover:not(:disabled) { background: var(--green-dim); border-color: var(--green); }
+
+  .btn-stop { color: var(--red); border-color: rgba(231,76,60,0.4); }
+  .btn-stop:hover:not(:disabled) { background: var(--red-dim); border-color: var(--red); }
+
+  .btn-restart { color: var(--amber); border-color: rgba(245,166,35,0.4); }
+  .btn-restart:hover:not(:disabled) { background: var(--amber-dim); border-color: var(--amber); }
+
+  .btn-open {
+    color: #fff;
+    border-color: var(--border2);
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.7rem;
+  }
+
+  .btn-open:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-open.disabled { opacity: 0.3; pointer-events: none; }
+
+  .toast-container {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 999;
+  }
+
+  .toast {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    padding: 0.6rem 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text);
+    animation: slide-in 0.2s ease;
+    max-width: 320px;
+  }
+
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--amber); }
+
+  @keyframes slide-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  .last-update {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-align: right;
+    margin-top: 1.5rem;
+    letter-spacing: 0.05em;
+  }
+
+  @media (max-width: 768px) {
+    .sys-bar { grid-template-columns: repeat(2, 1fr); }
+    header { padding: 1rem; }
+    main { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-icon">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect x="1" y="1" width="16" height="16" stroke="#f5a623" stroke-width="1.5" fill="none"/>
+        <rect x="4" y="4" width="4" height="4" fill="#f5a623" opacity="0.8"/>
+        <rect x="10" y="4" width="4" height="4" fill="#f5a623" opacity="0.4"/>
+        <rect x="4" y="10" width="4" height="4" fill="#f5a623" opacity="0.4"/>
+        <rect x="10" y="10" width="4" height="4" fill="#f5a623" opacity="0.8"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>NUC Homelab</h1>
+      <p class="mono">192.168.1.16 — Intel NUC7i3BNHX1</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="clock" id="clock">--:--:--</span>
+    <button class="refresh-btn" id="refresh-btn" onclick="refresh()">
+      <svg id="refresh-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline;vertical-align:middle;margin-right:4px">
+        <path d="M10 6A4 4 0 1 1 6 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6 2L8 0M6 2L8 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+</header>
+
+<main>
+  <div class="sys-bar">
+    <div class="stat-card" id="stat-cpu">
+      <div class="stat-label">CPU Load</div>
+      <div class="stat-value mono" id="cpu-val">—<span>%</span></div>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="cpu-bar" style="width:0%"></div></div>
+    </div>
+    <div class="stat-card" id="stat-ram">
+      <div class="stat-label">Memory</div>
+      <div class="stat-value mono" id="ram-val">—<span> GB</span></div>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="ram-bar" style="width:0%"></div></div>
+    </div>
+    <div class="stat-card" id="stat-disk">
+      <div class="stat-label">Disk</div>
+      <div class="stat-value mono" id="disk-val">—<span> GB</span></div>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="disk-bar" style="width:0%"></div></div>
+    </div>
+    <div class="stat-card" id="stat-uptime">
+      <div class="stat-label">Uptime</div>
+      <div class="stat-value mono" id="uptime-val" style="font-size:1.2rem">—</div>
+      <div class="stat-bar-wrap"><div class="stat-bar" style="width:100%;background:var(--muted)"></div></div>
+    </div>
+  </div>
+
+  <div class="section-header">
+    <div class="section-title">Services</div>
+    <div class="filter-tabs" id="filter-tabs">
+      <button class="filter-tab active" onclick="setFilter('all')" data-filter="all">All</button>
+      <button class="filter-tab" onclick="setFilter('gaming')" data-filter="gaming">Gaming</button>
+      <button class="filter-tab" onclick="setFilter('media')" data-filter="media">Media</button>
+      <button class="filter-tab" onclick="setFilter('ai')" data-filter="ai">AI</button>
+      <button class="filter-tab" onclick="setFilter('productivity')" data-filter="productivity">Docs</button>
+      <button class="filter-tab" onclick="setFilter('system')" data-filter="system">System</button>
+    </div>
+  </div>
+
+  <div class="services-grid" id="services-grid"></div>
+
+  <div class="last-update">Last update: <span id="last-update-time">never</span> — auto-refresh every 30s</div>
+</main>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+const API = '';
+
+const SERVICES = [];
+let currentFilter = 'all';
+let refreshTimer;
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.filter === f);
+  });
+  document.querySelectorAll('.svc-card').forEach(card => {
+    const show = f === 'all' || card.dataset.group === f;
+    card.classList.toggle('hidden', !show);
+  });
+}
+
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function statBar(pct) {
+  if (pct > 85) return 'danger';
+  if (pct > 65) return 'warn';
+  return '';
+}
+
+function updateSystem(sys) {
+  document.getElementById('cpu-val').innerHTML = `${sys.cpu}<span>%</span>`;
+  const cpuBar = document.getElementById('cpu-bar');
+  cpuBar.style.width = sys.cpu + '%';
+  cpuBar.className = 'stat-bar ' + statBar(sys.cpu);
+
+  document.getElementById('ram-val').innerHTML = `${sys.ram_used}<span>/${sys.ram_total} GB</span>`;
+  const ramBar = document.getElementById('ram-bar');
+  ramBar.style.width = sys.ram_pct + '%';
+  ramBar.className = 'stat-bar ' + statBar(sys.ram_pct);
+
+  document.getElementById('disk-val').innerHTML = `${sys.disk_used}<span>/${sys.disk_total} GB</span>`;
+  const diskBar = document.getElementById('disk-bar');
+  diskBar.style.width = sys.disk_pct + '%';
+  diskBar.className = 'stat-bar ' + statBar(sys.disk_pct);
+
+  document.getElementById('uptime-val').textContent = sys.uptime;
+
+  ['stat-cpu','stat-ram','stat-disk','stat-uptime'].forEach(id => {
+    document.getElementById(id).classList.add('loaded');
+  });
+}
+
+function updateServiceStatuses(statuses) {
+  statuses.forEach(s => {
+    const dot = document.getElementById(`dot-${s.id}`);
+    const txt = document.getElementById(`status-txt-${s.id}`);
+    const startBtn = document.getElementById(`start-${s.id}`);
+    const stopBtn = document.getElementById(`stop-${s.id}`);
+    const restartBtn = document.getElementById(`restart-${s.id}`);
+
+    if (!dot) return;
+
+    const isUp = s.running;
+    dot.className = 'status-dot ' + (isUp ? 'up' : (s.running === false ? 'down' : 'unknown'));
+    txt.className = 'status-text ' + (isUp ? 'up' : (s.running === false ? 'down' : 'unknown'));
+    txt.textContent = isUp ? 'ONLINE' : 'OFFLINE';
+
+    if (startBtn) startBtn.disabled = isUp;
+    if (stopBtn) stopBtn.disabled = !isUp;
+    if (restartBtn) restartBtn.disabled = !isUp;
+  });
+}
+
+async function controlService(svcId, action) {
+  const label = {start:'Starting',stop:'Stopping',restart:'Restarting'}[action];
+  toast(`${label} ${svcId}...`, 'info');
+  const btns = ['start','stop','restart'].map(a => document.getElementById(`${a}-${svcId}`));
+  btns.forEach(b => b && (b.disabled = true));
+
+  try {
+    const res = await fetch(`${API}/api/control`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({service: svcId, action})
+    });
+    const data = await res.json();
+    if (data.success) {
+      toast(`${svcId}: ${action} OK`, 'success');
+      setTimeout(refresh, 1500);
+    } else {
+      toast(`Error: ${data.error || data.output}`, 'error');
+      setTimeout(refresh, 1500);
+    }
+  } catch (e) {
+    toast(`Failed: ${e.message}`, 'error');
+    btns.forEach(b => b && (b.disabled = false));
+  }
+}
+
+function buildCard(svc) {
+  const hasUrl = !!svc.url;
+  const portText = svc.port ? `:${svc.port}` : 'no port';
+
+  return `
+    <div class="svc-card" id="card-${svc.id}" data-group="${svc.group}">
+      <div class="svc-top">
+        <div>
+          <div class="svc-name">${svc.name}</div>
+          <div class="svc-desc">${svc.desc}</div>
+        </div>
+        <div id="dot-${svc.id}" class="status-dot unknown"></div>
+      </div>
+      <div class="svc-meta">
+        <span class="svc-badge ${svc.group}">${svc.group}</span>
+        <span class="svc-port mono">${portText}</span>
+        <span id="status-txt-${svc.id}" class="status-text unknown">—</span>
+      </div>
+      <div class="svc-actions">
+        <button class="btn btn-start" id="start-${svc.id}" onclick="controlService('${svc.id}','start')" disabled>Start</button>
+        <button class="btn btn-stop" id="stop-${svc.id}" onclick="controlService('${svc.id}','stop')" disabled>Stop</button>
+        <button class="btn btn-restart" id="restart-${svc.id}" onclick="controlService('${svc.id}','restart')" disabled>Restart</button>
+        ${hasUrl
+          ? `<a class="btn btn-open" href="${svc.url}" target="_blank">Open <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 8L8 2M8 2H4M8 2V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></a>`
+          : `<span class="btn btn-open disabled">No UI</span>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+async function loadConfig() {
+  const res = await fetch(`${API}/api/config`);
+  const svcs = await res.json();
+  const grid = document.getElementById('services-grid');
+  grid.innerHTML = svcs.map(buildCard).join('');
+  svcs.forEach(s => SERVICES.push(s));
+}
+
+async function refresh() {
+  const btn = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  btn.classList.add('spinning');
+
+  try {
+    const res = await fetch(`${API}/api/status`);
+    const data = await res.json();
+    updateSystem(data.system);
+    updateServiceStatuses(data.services);
+    document.getElementById('last-update-time').textContent = new Date().toLocaleTimeString('en-GB');
+  } catch (e) {
+    toast('Failed to reach backend — is server.py running?', 'error');
+  } finally {
+    btn.classList.remove('spinning');
+  }
+
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 30000);
+}
+
+(async () => {
+  setInterval(updateClock, 1000);
+  updateClock();
+  await loadConfig().catch(() => {
+    toast('Could not load config — is server.py running?', 'error');
+  });
+  setFilter('all');
+  await refresh();
+})();
+</script>
+</body>
+</html>

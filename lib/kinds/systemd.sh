@@ -32,7 +32,15 @@ download)
 
 start)
     need_systemd
-    unit_exists || die "$APP_NAME: $UNIT is not installed (run: homelab install $APP_NAME)"
+    if ! unit_exists; then
+        # During a dry run download.sh has not actually written the unit, so a
+        # hard failure here would make it impossible to preview a full install.
+        if ! is_apply; then
+            warn "$APP_NAME: $UNIT does not exist yet (a real run installs it first)"
+            exit $EX_NOOP
+        fi
+        die "$APP_NAME: $UNIT is not installed (run: homelab install $APP_NAME)"
+    fi
     if unit_active; then
         ok "$APP_NAME: already running"
         exit $EX_NOOP
@@ -54,6 +62,13 @@ stop)
 update)
     need_systemd
     unit_exists || die "$APP_NAME: not installed"
+    # For these apps "update" means redeploy: download.sh is what places the
+    # files, so reloading the unit without re-running it would restart the
+    # service on the exact same code it was already running.
+    if [ -x "$APP_DIR/download.sh" ]; then
+        log "$APP_NAME: re-running download to refresh installed files"
+        bash "$APP_DIR/download.sh"
+    fi
     log "$APP_NAME: reloading unit and restarting"
     run $SUDO systemctl daemon-reload
     if unit_active; then
