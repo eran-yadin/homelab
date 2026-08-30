@@ -15,6 +15,11 @@ import subprocess, socket, os, time, json, shutil, threading
 app = Flask(__name__, static_folder=".")
 
 HOMELAB = os.environ.get("HOMELAB_BIN", "/opt/homelab/homelab")
+HUB_STATE = os.environ.get("HUB_STATE", "/var/lib/homelab-hub")
+FILTERS_FILE = os.path.join(HUB_STATE, "filters.json")
+
+MAX_FILTERS = 24
+MAX_NAME = 40
 HOSTNAME = socket.gethostname()
 SYSTEMCTL = shutil.which("systemctl") or "/usr/bin/systemctl"
 
@@ -110,6 +115,77 @@ def urls_for(port, lip, tsip, tsdns):
     if host:
         u["tailscale"] = f"http://{host}:{port}"
     return u
+
+
+# -------------------------------------------------------------- filters
+#
+# Custom filters live on the server, not in localStorage, so the same view
+# follows you from the laptop to the phone.
+
+def load_filters():
+    try:
+        with open(FILTERS_FILE) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+
+def clean_filters(raw):
+    """Validate what a client sent. This is written to disk, so be strict."""
+    if not isinstance(raw, list):
+        raise ValueError("expected a list of filters")
+    known = {a["app"] for a in catalog()}
+    out, seen = [], set()
+    for item in raw[:MAX_FILTERS]:
+        if not isinstance(item, dict):
+            raise ValueError("each filter must be an object")
+        name = str(item.get("name", "")).strip()
+        name = "".join(c for c in name if c.isprintable())[:MAX_NAME]
+        if not name:
+            raise ValueError("every filter needs a name")
+        fid = str(item.get("id", ""))
+        fid = "".join(c for c in fid if c.isalnum())[:16]
+        if not fid or fid in seen:
+            fid = os.urandom(4).hex()
+        seen.add(fid)
+        apps = item.get("apps")
+        if not isinstance(apps, list):
+            raise ValueError(f"filter '{name}' has no app list")
+        # silently drop apps that no longer exist rather than failing the save
+        apps = [a for a in dict.fromkeys(str(x) for x in apps) if a in known]
+        out.append({"id": fid, "name": name, "apps": apps})
+    return out
+
+
+def save_filters(data):
+    os.makedirs(HUB_STATE, exist_ok=True)
+    tmp = FILTERS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, FILTERS_FILE)      # atomic: never a half-written file
+
+
+@app.route("/api/filters", methods=["GET"])
+def api_filters_get():
+    return jsonify(load_filters())
+
+
+@app.route("/api/filters", methods=["PUT"])
+def api_filters_put():
+    try:
+        cleaned = clean_filters(request.json)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        save_filters(cleaned)
+    except OSError as e:
+        return jsonify({"error": f"could not write {FILTERS_FILE}: {e}"}), 500
+    return jsonify(cleaned)
 
 
 # --------------------------------------------------------------- system

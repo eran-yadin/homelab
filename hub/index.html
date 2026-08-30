@@ -544,6 +544,62 @@
   }
   .log-output.show { display: block; }
 
+
+  /* --- custom filters -------------------------------------------------- */
+
+  .filter-tab.custom { border-style: dashed; }
+  .filter-tab.custom.active { border-style: solid; }
+  .tab-edit {
+    margin-left: 0.4rem; opacity: 0.5; font-size: 0.9em; cursor: pointer;
+  }
+  .tab-edit:hover { opacity: 1; }
+  .filter-tab.add {
+    font-weight: 700; padding-left: 0.7rem; padding-right: 0.7rem;
+    color: var(--amber); border-color: var(--amber-dim);
+  }
+  .filter-tab.add:hover { border-color: var(--amber); background: var(--amber-dim); }
+
+  .modal-card.neutral { border-color: var(--border2); }
+  .modal-card.neutral h3 { color: var(--amber); }
+  .modal-card.wide { max-width: 560px; }
+
+  .field-label {
+    display: block; font-family: 'JetBrains Mono', monospace; font-size: 0.62rem;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  .text-input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border2);
+    color: var(--text); font-family: 'Rajdhani', sans-serif; font-size: 1rem;
+    padding: 0.5rem 0.7rem; border-radius: 4px; outline: none; margin-bottom: 1rem;
+  }
+  .text-input:focus { border-color: var(--amber); }
+
+  .pick-list { max-height: 44vh; overflow-y: auto; margin-bottom: 0.8rem;
+               border: 1px solid var(--border); border-radius: 4px; padding: 0.5rem; }
+  .pick-group {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; color: var(--muted);
+    letter-spacing: 0.1em; text-transform: uppercase; margin: 0.6rem 0 0.3rem;
+  }
+  .pick-group:first-child { margin-top: 0; }
+  .pick-row {
+    display: flex; align-items: center; gap: 0.55rem; padding: 0.32rem 0.4rem;
+    border-radius: 3px; cursor: pointer;
+  }
+  .pick-row:hover { background: var(--bg3); }
+  .pick-row input { accent-color: var(--amber); cursor: pointer; }
+  .pick-row .n { color: var(--text); font-size: 0.95rem; }
+  .pick-row .p { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; }
+  .pick-tools { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .pick-tools button {
+    background: none; border: 1px solid var(--border2); color: var(--muted);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 0.25rem 0.55rem; border-radius: 3px; cursor: pointer;
+  }
+  .pick-tools button:hover { color: var(--text); border-color: var(--amber); }
+  .pick-count { margin-left: auto; align-self: center; color: var(--muted);
+                font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; }
+
 </style>
 </head>
 <body>
@@ -626,6 +682,28 @@
   <div class="last-update">Last update: <span id="last-update-time">never</span> — auto-refresh every 30s</div>
 </main>
 
+<div class="modal-backdrop" id="filter-modal">
+  <div class="modal-card neutral wide">
+    <h3 id="filter-modal-title">New filter</h3>
+    <label class="field-label" for="filter-name">Name</label>
+    <input class="text-input" id="filter-name" type="text" maxlength="40"
+           placeholder="e.g. Daily, Media, Everything but base">
+    <label class="field-label">Show these apps</label>
+    <div class="pick-tools">
+      <button onclick="pickAll(true)">All</button>
+      <button onclick="pickAll(false)">None</button>
+      <button onclick="pickInvert()">Invert</button>
+      <span class="pick-count" id="pick-count">0 selected</span>
+    </div>
+    <div class="pick-list" id="pick-list"></div>
+    <div class="modal-actions">
+      <button class="danger-btn" id="filter-delete" onclick="deleteFilter()" style="display:none">Delete</button>
+      <button class="btn btn-open" onclick="closeFilterModal()">Cancel</button>
+      <button class="btn btn-install" onclick="saveFilter()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="reboot-modal">
   <div class="modal-card">
     <h3>Reboot server?</h3>
@@ -649,6 +727,8 @@ let currentFilter = localStorage.getItem('hub.filter') || 'all';
 let linkMode = localStorage.getItem('hub.linkMode') || 'local';
 let refreshTimer;
 let bootTime = null;          // /proc btime, used to confirm a reboot happened
+let FILTERS = [];             // custom filters, stored server-side
+let editingId = null;         // filter being edited in the modal, null = new
 
 /* ---------------------------------------------------------------- utils */
 
@@ -717,7 +797,15 @@ function applyFilters() {
   CONFIG.forEach(svc => {
     const card = document.getElementById(`card-${svc.id}`);
     if (!card) return;
-    const matchGroup = currentFilter === 'all' || svc.group === currentFilter;
+    let matchGroup;
+    if (currentFilter === 'all') {
+      matchGroup = true;
+    } else if (currentFilter.startsWith('custom:')) {
+      const f = FILTERS.find(x => x.id === currentFilter.slice(7));
+      matchGroup = f ? f.apps.includes(svc.id) : true;
+    } else {
+      matchGroup = svc.group === currentFilter;
+    }
     const matchText = !q ||
       svc.name.toLowerCase().includes(q) ||
       svc.id.toLowerCase().includes(q) ||
@@ -731,10 +819,146 @@ function applyFilters() {
 
 function buildTabs() {
   const groups = [...new Set(CONFIG.map(s => s.group))].sort();
-  const el = document.getElementById('filter-tabs');
-  el.innerHTML = ['all', ...groups].map(g =>
-    `<button class="filter-tab" data-filter="${g}" onclick="setFilter('${g}')">${g}</button>`
-  ).join('');
+  const esc = t => t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+  const builtin = ['all', ...groups].map(g =>
+    `<button class="filter-tab" data-filter="${g}" onclick="setFilter('${g}')">${g}</button>`);
+
+  const custom = FILTERS.map(f =>
+    `<button class="filter-tab custom" data-filter="custom:${f.id}"
+             onclick="setFilter('custom:${f.id}')" title="${f.apps.length} apps">
+       ${esc(f.name)}<span class="tab-edit" onclick="editFilter(event,'${f.id}')" title="Edit">&#9998;</span>
+     </button>`);
+
+  const add = `<button class="filter-tab add" onclick="newFilter()" title="New custom filter">+</button>`;
+
+  document.getElementById('filter-tabs').innerHTML =
+    builtin.concat(custom).join('') + add;
+}
+
+/* -------------------------------------------------- custom filter editing */
+
+function renderPickList(selected) {
+  const esc = t => t.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const groups = [...new Set(CONFIG.map(s => s.group))].sort();
+  let html = '';
+  groups.forEach(g => {
+    html += `<div class="pick-group">${esc(g)}</div>`;
+    CONFIG.filter(s => s.group === g).forEach(s => {
+      const on = selected.includes(s.id) ? 'checked' : '';
+      html += `<label class="pick-row">
+                 <input type="checkbox" value="${s.id}" ${on} onchange="updatePickCount()">
+                 <span class="n">${esc(s.name)}</span>
+                 <span class="p">${s.port ? ':' + s.port : ''}</span>
+               </label>`;
+    });
+  });
+  document.getElementById('pick-list').innerHTML = html;
+  updatePickCount();
+}
+
+function pickBoxes() {
+  return [...document.querySelectorAll('#pick-list input[type=checkbox]')];
+}
+function pickAll(on)   { pickBoxes().forEach(b => b.checked = on); updatePickCount(); }
+function pickInvert()  { pickBoxes().forEach(b => b.checked = !b.checked); updatePickCount(); }
+function updatePickCount() {
+  const n = pickBoxes().filter(b => b.checked).length;
+  document.getElementById('pick-count').textContent =
+    `${n} of ${pickBoxes().length} selected`;
+}
+
+function openFilterModal(title, name, selected, showDelete) {
+  document.getElementById('filter-modal-title').textContent = title;
+  document.getElementById('filter-name').value = name;
+  document.getElementById('filter-delete').style.display = showDelete ? '' : 'none';
+  renderPickList(selected);
+  document.getElementById('filter-modal').classList.add('show');
+  setTimeout(() => document.getElementById('filter-name').focus(), 50);
+}
+
+function closeFilterModal() {
+  document.getElementById('filter-modal').classList.remove('show');
+  editingId = null;
+}
+
+function newFilter() {
+  editingId = null;
+  // Seed from whatever is on screen now, so "hide the base apps" is: filter to
+  // what you want, hit +, save.
+  const visible = CONFIG
+    .filter(s => !document.getElementById(`card-${s.id}`).classList.contains('hidden'))
+    .map(s => s.id);
+  openFilterModal('New filter', '', visible, false);
+}
+
+function editFilter(ev, id) {
+  ev.stopPropagation();                  // don't also switch to the tab
+  const f = FILTERS.find(x => x.id === id);
+  if (!f) return;
+  editingId = id;
+  openFilterModal('Edit filter', f.name, f.apps, true);
+}
+
+async function putFilters(list) {
+  const res = await fetch(`${API}/api/filters`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(list)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'save failed');
+  FILTERS = data;
+  buildTabs();
+  return data;
+}
+
+async function saveFilter() {
+  const name = document.getElementById('filter-name').value.trim();
+  if (!name) { toast('Give the filter a name', 'error'); return; }
+  const apps = pickBoxes().filter(b => b.checked).map(b => b.value);
+  if (!apps.length) { toast('Pick at least one app', 'error'); return; }
+
+  const next = FILTERS.slice();
+  if (editingId) {
+    const i = next.findIndex(f => f.id === editingId);
+    if (i >= 0) next[i] = {...next[i], name, apps};
+  } else {
+    next.push({id: '', name, apps});     // the server assigns the id
+  }
+  try {
+    const saved = await putFilters(next);
+    const target = editingId
+      ? saved.find(f => f.id === editingId)
+      : saved[saved.length - 1];
+    closeFilterModal();
+    toast(`Saved "${name}"`, 'success');
+    if (target) setFilter('custom:' + target.id);
+  } catch (e) {
+    toast(`Could not save: ${e.message}`, 'error');
+  }
+}
+
+async function deleteFilter() {
+  if (!editingId) return;
+  const f = FILTERS.find(x => x.id === editingId);
+  try {
+    await putFilters(FILTERS.filter(x => x.id !== editingId));
+    closeFilterModal();
+    toast(`Deleted "${f ? f.name : 'filter'}"`, 'success');
+    setFilter('all');
+  } catch (e) {
+    toast(`Could not delete: ${e.message}`, 'error');
+  }
+}
+
+async function loadFilters() {
+  try {
+    const res = await fetch(`${API}/api/filters`);
+    FILTERS = await res.json();
+  } catch (e) {
+    FILTERS = [];
+  }
 }
 
 /* --------------------------------------------------------------- system */
@@ -948,8 +1172,14 @@ async function loadConfig() {
   const res = await fetch(`${API}/api/config`);
   CONFIG = await res.json();
   document.getElementById('services-grid').innerHTML = CONFIG.map(buildCard).join('');
+  await loadFilters();
   buildTabs();
-  setFilter(CONFIG.some(s => s.group === currentFilter) ? currentFilter : 'all');
+  const stillValid =
+    currentFilter === 'all' ||
+    CONFIG.some(s => s.group === currentFilter) ||
+    (currentFilter.startsWith('custom:') &&
+     FILTERS.some(f => f.id === currentFilter.slice(7)));
+  setFilter(stillValid ? currentFilter : 'all');
 }
 
 async function refresh() {
@@ -976,7 +1206,7 @@ async function refresh() {
 /* ------------------------------------------------------------- shortcuts */
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeReboot(); document.activeElement.blur(); return; }
+  if (e.key === 'Escape') { closeReboot(); closeFilterModal(); document.activeElement.blur(); return; }
   if (e.target.tagName === 'INPUT') return;
   if (e.key === '/') { e.preventDefault(); document.getElementById('search').focus(); }
   if (e.key === 'r') refresh();

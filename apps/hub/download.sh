@@ -41,6 +41,12 @@ run $SUDO mkdir -p "$DEST"
 run $SUDO cp "$APP_FILES/server.py" "$APP_FILES/index.html" "$DEST/"
 run $SUDO chown -R "$HUB_USER" "$DEST"
 
+# Custom filters are written here at runtime, so it must be writable by the
+# hub user -- and separate from $DEST, which `update` overwrites.
+run $SUDO mkdir -p /var/lib/homelab-hub
+run $SUDO chown "$HUB_USER" /var/lib/homelab-hub
+run $SUDO chmod 0750 /var/lib/homelab-hub
+
 # --- sudoers ----------------------------------------------------------------
 # Written to a temp file and validated before being put in place: a malformed
 # file in /etc/sudoers.d breaks sudo for everyone, including the shell you
