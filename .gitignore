@@ -1,0 +1,4 @@
+testenv/golden/
+testenv/run/
+*.qcow2
+*.img
