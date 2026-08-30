@@ -10,7 +10,8 @@
 # data are left exactly alone.
 
 set -euo pipefail
-cd "$(dirname "$(readlink -f "$0")")"
+# the repo root, not scripts/ -- ./homelab lives one level up
+cd "$(dirname "$(readlink -f "$0")")/.."
 
 C_G=$'\033[32m'; C_Y=$'\033[33m'; C_B=$'\033[1m'; C_Z=$'\033[0m'
 step() { printf '\n%s==> %s%s\n' "$C_B" "$*" "$C_Z"; }
