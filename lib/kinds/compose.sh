@@ -252,6 +252,18 @@ restore)
     need_docker
     src="${1:-}"; [ -n "$src" ] || die "restore needs a source directory"
     [ -d "$src" ] || die "no such directory: $src"
+    # Restoring underneath a running app is destructive in a way that is hard
+    # to see: postgres has already initialised a fresh cluster in the volume
+    # and holds it open, so the archive lands on top of live files. The right
+    # order is download -> restore -> start, and the engine should enforce it
+    # rather than document it.
+    if [ "$(_running_count)" -gt 0 ]; then
+        err "$APP_NAME is running. Restoring into live volumes would corrupt them."
+        err "    Stop it first:   homelab stop $APP_NAME --apply"
+        err "    Then:            homelab restore $APP_NAME $src --apply"
+        err "    On a new machine the order is: download, restore, start."
+        exit 1
+    fi
     found=0
     for f in "$src"/vol-*.tar.gz; do
         [ -f "$f" ] || continue

@@ -140,6 +140,24 @@ while making clear homelab did not install it:
   it: docker does not record the original `docker run` arguments, so there is
   no safe way to rebuild it
 
+## Moving an app to another machine
+
+    homelab backup  <app> <dir>        # on the old box
+    # copy <dir> across
+    homelab download <app> --apply     # on the new box: images only
+    homelab restore  <app> <dir> --apply
+    homelab start    <app> --apply
+
+The order matters and the engine enforces it. `restore` refuses while the app
+is running, because postgres (or any database) has by then initialised a fresh
+cluster in the volume and holds those files open -- the archive would land on
+top of live data. `install` is download **and** start, so it is the wrong verb
+for a restore; use `download`.
+
+`backup` writes one archive per named volume plus the app's `.env`, so
+generated secrets travel with the data. That file is as sensitive as the
+backup itself.
+
 ## Refusing to start rather than half-starting
 
 Before `start`, the engine checks that nothing else holds the app's ports, that

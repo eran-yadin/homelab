@@ -162,6 +162,11 @@ backup)
 restore)
     src="${1:-}"; [ -n "$src" ] || die "restore needs a source directory"
     [ -d "$src" ] || die "no such directory: $src"
+    if unit_active; then
+        err "$APP_NAME is running. Restoring over files it has open is not safe."
+        err "    Stop it first:  homelab stop $APP_NAME --apply"
+        exit 1
+    fi
     found=0
     for f in "$src"/path-*.tar.gz; do
         [ -f "$f" ] || continue
