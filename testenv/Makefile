@@ -43,7 +43,7 @@ VM        := eran@127.0.0.1
 COMMA      := ,
 EMPTY      :=
 SPACE      := $(EMPTY) $(EMPTY)
-FWD_PORTS  := 7070 8010 8096 3001 3214 4533 8011 8123 8384 8222 3080 8080
+FWD_PORTS  := 7070 8010 8096 3001 3214 4533 8011 8123 8384 8222 3080 8080 11470
 HOSTFWD    := hostfwd=tcp::$(SSH_PORT)-:22,$(subst $(SPACE),$(COMMA),$(foreach p,$(FWD_PORTS),hostfwd=tcp::$(p)-:$(p))),hostfwd=tcp::8081-:80,hostfwd=tcp::8443-:443
 
 # SLIRP user-mode network. Deliberately 10.100.0.0/24 so it can never be
