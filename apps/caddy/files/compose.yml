@@ -3,13 +3,13 @@ services:
     image: caddy:2-alpine
     container_name: caddy
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    # Host networking, because a reverse proxy exists to reach the other apps.
+    # On a bridge network "127.0.0.1:8010" is the container's own loopback, not
+    # the host's, so every published port on this machine would be invisible.
+    network_mode: host
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./sites:/etc/caddy/sites:ro
+      - /etc/caddy/sites:/etc/caddy/sites:ro
       - data:/data
       - config:/config
     healthcheck:

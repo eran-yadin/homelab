@@ -1,11 +1,18 @@
-# Base config. Drop per-app route files into sites/ next to this file; each
-# one is a normal Caddy site block and gets imported here.
+# Base config. Per-app routes are generated into /etc/caddy/sites by
+# `homelab install caddy` from the catalog, and imported below.
 {
 	admin off
+	# No public DNS and no certificate authority reachable for a .local-style
+	# name, so plain HTTP on the LAN. Turn this on once real hostnames exist.
+	auto_https off
 }
 
-:80 {
-	respond "homelab caddy is up. add routes in /etc/caddy/sites/" 200
-}
-
+# Named hosts win over the catch-all below, because Caddy matches the most
+# specific site block for the request's Host header.
 import /etc/caddy/sites/*.caddy
+
+# Anything else arriving on :80 -- including bare http://<ip>/ -- gets the hub,
+# so the front door is a dashboard rather than a 404.
+:80 {
+	reverse_proxy 127.0.0.1:7070
+}
