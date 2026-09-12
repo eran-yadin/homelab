@@ -79,6 +79,80 @@ _service_count() {
 _running_count() { _containers | awk -F'|' '$2=="running"' | grep -c . || true; }
 _has_build()     { grep -qE '^[[:space:]]+build:' "$COMPOSE_FILE"; }
 
+# A volume declared in app.conf as bulk_volumes="name ..." holds media that no
+# migration rewrites -- Immich's photo library, say. The pre-update backup
+# skips those: they are what makes a backup slow and big, and the update does
+# not touch them. `homelab backup` still archives everything.
+_is_bulk() {
+    local b
+    for b in ${APP_BULK_VOLUMES:-}; do [ "$b" = "$1" ] && return 0; done
+    return 1
+}
+
+_do_backup() {  # _do_backup <dest> <skip-bulk 0|1>
+    local dest="$1" skip="${2:-0}" vols v short
+    run mkdir -p "$dest"
+    vols="$("${DK[@]}" volume ls -q 2>/dev/null | grep "^${APP_NAME}_" || true)"
+    [ -n "$vols" ] || warn "$APP_NAME: no volumes found to back up"
+    for v in $vols; do
+        short="${v#"${APP_NAME}"_}"
+        if [ "$skip" = 1 ] && _is_bulk "$short"; then
+            log "$APP_NAME: skipping $v (bulk media, not touched by an update)"
+            continue
+        fi
+        log "$APP_NAME: archiving volume $v"
+        run_sh "${DK[*]} run --rm -v '$v':/src:ro -v '$dest':/out alpine tar -czf '/out/vol-$v.tar.gz' -C /src ."
+    done
+    if [ -f "$APP_STATE/.env" ]; then
+        run_sh "cp '$APP_STATE/.env' '$dest/env'"
+        warn "$dest/env contains this install's secrets - keep it as private as the data"
+    fi
+}
+
+# The image a service will run after `up -d`, from the compose config, so a
+# changed tag in the compose file (v3.2.0 -> release) is seen as a change too.
+_service_images() {  # "service|image-ref" per line
+    if have python3; then
+        dc_ro config --format json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for name, svc in (d.get("services") or {}).items():
+    if svc.get("image"):
+        print("%s|%s" % (name, svc["image"]))' 2>/dev/null || true
+    else
+        # no python: fall back to the reference each container was created from
+        "${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
+            --format '{{.Label "com.docker.compose.service"}}|{{.Image}}' 2>/dev/null || true
+    fi
+}
+
+_img_ver() {  # a human version for an image id: its OCI version label, else the short id
+    local v
+    v="$("${DK[@]}" image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$1" 2>/dev/null || true)"
+    if [ -n "$v" ]; then printf '%s' "$v"; else printf '%s' "${1#sha256:}" | cut -c1-12; fi
+}
+
+# "service|old-version|new-version" for every running service whose image
+# would change on `up -d`. Empty means the update would recreate nothing.
+_image_changes() {
+    local svc ref cid old new
+    _service_images | while IFS='|' read -r svc ref; do
+        ref="${ref%$'\r'}"      # python on Windows ends lines with CRLF
+        [ -n "$svc" ] || continue
+        _is_oneshot "$svc" && continue
+        cid="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
+               --filter "label=com.docker.compose.service=$svc" -q 2>/dev/null | head -1)"
+        [ -n "$cid" ] || continue
+        old="$("${DK[@]}" inspect -f '{{.Image}}' "$cid" 2>/dev/null || true)"
+        new="$("${DK[@]}" image inspect -f '{{.Id}}' "$ref" 2>/dev/null || true)"
+        [ -n "$old" ] && [ -n "$new" ] && [ "$old" != "$new" ] || continue
+        printf '%s|%s|%s\n' "$svc" "$(_img_ver "$old")" "$(_img_ver "$new")"
+    done
+}
+
 case "$VERB" in
 
 download)
@@ -169,18 +243,62 @@ stop)
 
 update)
     need_docker
+    ensure_state_dir
+    if ! is_apply; then
+        log "$APP_NAME: would pull newer images, show what changes, then recreate"
+        if [ "$APP_STATEFUL" = 1 ]; then
+            log "$APP_NAME: holds data, so it would back up its volumes first${APP_BULK_VOLUMES:+ (skipping bulk: $APP_BULK_VOLUMES)} and ask"
+        fi
+        dc pull --quiet
+        exit 0
+    fi
     log "$APP_NAME: pulling newer images"
-    if ! dc pull; then
+    if ! dc pull --quiet; then
         warn "$APP_NAME: pull reported errors (expected for build-only services)"
     fi
     if _has_build; then dc build --pull; fi
-    if [ "$(_running_count)" -gt 0 ]; then
-        log "$APP_NAME: recreating containers"
-        dc up -d
-        ok "$APP_NAME: updated"
-    else
+    if [ "$(_running_count)" -eq 0 ]; then
         ok "$APP_NAME: images updated (app is stopped, leaving it stopped)"
+        exit 0
     fi
+
+    # Pulling changed nothing that runs. Before recreating, say what the
+    # jump is -- and for an app that holds data, back up and ask. Floating
+    # tags (latest, stable, release) are the default in this catalog, so a
+    # routine update can be a major version; this is where that gets seen.
+    changes="$(_image_changes)"
+    if [ -z "$changes" ]; then
+        ok "$APP_NAME: already on the newest images"
+        exit $EX_NOOP
+    fi
+    log "$APP_NAME: this update changes:"
+    printf '%s\n' "$changes" | while IFS='|' read -r svc o n; do
+        printf '     %-28s %s  ->  %s\n' "$svc" "$o" "$n" >&2
+    done
+
+    if [ "$APP_STATEFUL" = 1 ]; then
+        if [ "${HOMELAB_YES:-0}" != 1 ]; then
+            if { exec 3</dev/tty; } 2>/dev/null; then
+                printf '%s holds data. Back it up and update? [y/N] ' "$APP_NAME" >&2
+                IFS= read -r yn <&3 || true; exec 3<&-
+                case "$yn" in [yY]*) ;; *) log "$APP_NAME: cancelled, nothing changed (the pulled images stay cached)"; exit $EX_CONFIRM ;; esac
+            else
+                err "$APP_NAME holds data. The update would back it up, then recreate it on the"
+                err "    new version. Nothing has changed yet. Confirm with:"
+                err "        homelab update $APP_NAME --apply --yes"
+                exit $EX_CONFIRM
+            fi
+        fi
+        bk="$HOMELAB_DATA/backups/$APP_NAME/pre-update-$(date +%Y%m%d-%H%M%S)"
+        log "$APP_NAME: backing up before the update -> $bk"
+        _do_backup "$bk" 1
+        run $SUDO chmod 0700 "$bk"
+        ok "$APP_NAME: backup done. If the new version misbehaves:"
+        ok "    homelab stop $APP_NAME --apply && homelab restore $APP_NAME $bk --apply && homelab start $APP_NAME --apply"
+    fi
+    log "$APP_NAME: recreating containers"
+    dc up -d
+    ok "$APP_NAME: updated"
     ;;
 
 delete)
@@ -256,17 +374,7 @@ backup)
     need_docker
     dest="${1:-}"; [ -n "$dest" ] || die "backup needs a destination directory"
     ensure_state_dir
-    run mkdir -p "$dest"
-    vols="$("${DK[@]}" volume ls -q 2>/dev/null | grep "^${APP_NAME}_" || true)"
-    [ -n "$vols" ] || warn "$APP_NAME: no volumes found to back up"
-    for v in $vols; do
-        log "$APP_NAME: archiving volume $v"
-        run_sh "${DK[*]} run --rm -v '$v':/src:ro -v '$dest':/out alpine tar -czf '/out/vol-$v.tar.gz' -C /src ."
-    done
-    if [ -f "$APP_STATE/.env" ]; then
-        run_sh "cp '$APP_STATE/.env' '$dest/env'"
-        warn "$dest/env contains this install's secrets - keep it as private as the data"
-    fi
+    _do_backup "$dest" 0
     ok "$APP_NAME: backed up to $dest"
     ;;
 

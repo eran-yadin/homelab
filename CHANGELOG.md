@@ -2,6 +2,14 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.0 - 2026-09-12
+
+- `update <app>` for compose apps shows the version jump per service before recreating anything
+- an app that holds data is backed up first, into `/var/lib/homelab/backups/<app>/pre-update-<ts>/`, and asked about: a prompt at a terminal, exit 3 without one, `--yes` to answer
+- hub: the per-app Update button turns that into a dialog with the jump and a "Back up and update" button
+- `bulk_volumes` in app.conf: volumes the pre-update backup skips (Immich's photo library); `backup` still archives everything
+- immich and paperless follow floating tags (`release`, `latest`) instead of pins; the update flow is what makes that safe
+
 ## v1.1.2 - 2026-09-12
 
 - hub: switching to Tailscale links first checks that this device can reach the server over the tailnet; if not, an error says so and the mode stays Local. The server-side case (Tailscale down on the NUC) already disabled the button with a message

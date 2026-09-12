@@ -22,6 +22,7 @@ DEPLOY_FROM=""
 DETACH=0
 CHANNEL=stable
 TO_TAG=""
+HOMELAB_YES=0
 export HOMELAB_APPLY
 
 usage() {
@@ -44,7 +45,10 @@ usage: homelab <command> [app] [options]
   install <app>...       download + start, one or more apps
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
-  update <app>
+  update <app> [--yes]   pull newer images and recreate. An app that holds data
+                         shows the version change, backs itself up, and asks
+                         first; --yes answers for you (exit 3 = it asked and
+                         nobody answered)
   update self [--channel stable|main] [--to <tag>] [--from <dir>] [--detach]
                          fetch from GitHub, back up what is deployed, deploy,
                          smoke-test, roll back on failure. The default channel,
@@ -72,6 +76,7 @@ options:
                 that only prints what it would do.
   --json        machine-readable output (used by the hub)
   --all         with status: every app in the catalog
+  --yes         answer yes to the confirmation `update <app>` asks for
   --debug       trace dispatch
 
 Nothing changes without --apply. --apply additionally refuses to run unless
@@ -91,6 +96,7 @@ while [ $# -gt 0 ]; do
         --purge)  PURGE=1 ;;
         --from)   shift; MIGRATE_FROM="${1:-}"; DEPLOY_FROM="${1:-}" ;;
         --detach) DETACH=1 ;;
+        --yes|-y) HOMELAB_YES=1 ;;
         --channel) shift; CHANNEL="${1:-}" ;;
         --to)     shift; TO_TAG="${1:-}" ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
@@ -100,7 +106,7 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-export HOMELAB_APPLY
+export HOMELAB_APPLY HOMELAB_YES
 require_apply_allowed
 
 # Read a line from the terminal when there is one, else from stdin -- so the

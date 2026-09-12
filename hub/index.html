@@ -716,6 +716,19 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="update-modal">
+  <div class="modal-card">
+    <h3>Update <span id="update-modal-app"></span>?</h3>
+    <p>This app holds data. A backup is taken first, then it is restarted on
+       the new version. If the new version misbehaves, the backup can be restored.</p>
+    <pre class="mono" id="update-modal-text" style="white-space:pre-wrap;font-size:0.72rem;color:var(--muted);margin:0.5rem 0"></pre>
+    <div class="modal-actions">
+      <button class="btn btn-open" onclick="closeUpdate()">Cancel</button>
+      <button class="btn btn-install" onclick="doUpdate()">Back up and update</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="reboot-modal">
   <div class="modal-card">
     <h3>Reboot server?</h3>
@@ -1171,7 +1184,7 @@ function updateServiceStatuses(statuses) {
 
 /* --------------------------------------------------------------- actions */
 
-async function controlService(id, action) {
+async function controlService(id, action, confirm = false) {
   const verb = {start:'Starting',stop:'Stopping',restart:'Restarting',
                 update:'Updating',install:'Installing'}[action];
   toast(`${verb} ${id}…`, 'info');
@@ -1184,9 +1197,13 @@ async function controlService(id, action) {
     const res = await fetch(`${API}/api/control`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({service: id, action})
+      body: JSON.stringify({service: id, action, confirm})
     });
     const data = await res.json();
+    if (data.needs_confirm) {
+      askUpdate(id, data.output || '');
+      return;
+    }
     if (data.success) {
       toast(data.noop ? `${id}: already ${action === 'stop' ? 'stopped' : 'running'}`
                       : `${id}: ${action} OK`, 'success');
@@ -1212,6 +1229,28 @@ async function controlService(id, action) {
 // starting anything twice; the page itself refuses to double-start anyway.
 function openUpdate() {
   window.open('/update?start=1', 'homelab-update');
+}
+
+/* ------------------------------------------------------- update confirm */
+// The engine pulled the new images, printed the version jump, and stopped
+// because the app holds data. Show that, and let the person decide.
+let pendingUpdate = null;
+function askUpdate(id, output) {
+  pendingUpdate = id;
+  const lines = output.split('\n').filter(l => /->|changes:/.test(l));
+  document.getElementById('update-modal-app').textContent = id;
+  document.getElementById('update-modal-text').textContent =
+    (lines.length ? lines.join('\n') : output).trim();
+  document.getElementById('update-modal').classList.add('show');
+}
+function closeUpdate() {
+  document.getElementById('update-modal').classList.remove('show');
+  pendingUpdate = null;
+}
+function doUpdate() {
+  const id = pendingUpdate;
+  closeUpdate();
+  if (id) controlService(id, 'update', true);
 }
 
 /* ---------------------------------------------------------------- reboot */

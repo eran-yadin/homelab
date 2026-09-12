@@ -25,6 +25,7 @@ That is what lets you add an app later without touching the engine.
 |---|---|
 | `0` | did the thing |
 | `2` | already in that state — nothing to do (**not** an error) |
+| `3` | stopped before changing anything because it needs a yes: `update` on a `stateful=1` app, run without `--yes` and without a terminal. The hub turns this into a confirmation dialog. |
 | other | failed |
 
 The `2` is what makes idempotency observable. `start` on a running app must
@@ -115,6 +116,7 @@ the hub.
 | `purge_paths` | — | kind=systemd: paths removed by `--purge` |
 | `purge_users` | — | kind=systemd: system users removed by `--purge` |
 | `oneshot` | — | compose services that run once and exit (init/migration); excluded from the running and total counts |
+| `bulk_volumes` | — | kind=compose: volumes an update never rewrites (a photo library). The backup `update` takes before recreating a `stateful=1` app skips them; `backup` still archives everything |
 | `health_url` | — | probed from the host when the container reports no health of its own — the only option for a distroless image with no shell |
 | `conflicts` | — | things that cannot coexist, e.g. `unit:nginx.service`. Checked before `start` |
 | `adopted` | `0` | this app already exists on the host; homelab controls it but will not install or remove it |

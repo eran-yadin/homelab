@@ -22,6 +22,7 @@ dbg()  { [ "${HOMELAB_DEBUG:-0}" = 1 ] && printf '%s dbg%s %s\n' "$C_DIM" "$C_RS
 # Exit codes that the contract assigns meaning to.
 readonly EX_OK=0        # did the thing
 readonly EX_NOOP=2      # already in the desired state, nothing to do
+readonly EX_CONFIRM=3   # stopped before changing anything: needs --yes (or a person at a tty)
 
 # ---------------------------------------------------------------- paths
 

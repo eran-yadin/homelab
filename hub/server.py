@@ -337,18 +337,27 @@ def api_control():
     if app_id not in known:
         return jsonify({"error": f"unknown app: {app_id}"}), 404
 
+    # `update` on an app that holds data backs up and then asks. Non-
+    # interactive, it stops with exit 3 having changed nothing; the page shows
+    # what it printed and asks the person, then calls again with confirm.
+    argv = ["sudo", "-n", HOMELAB, action, app_id, "--apply"]
+    if action == "update" and data.get("confirm"):
+        argv.append("--yes")
+
     # install can take many minutes (image pulls, builds)
     timeout = 1800 if action in ("install", "update") else 120
     try:
-        r = subprocess.run(["sudo", "-n", HOMELAB, action, app_id, "--apply"],
-                           capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         _catalog_cache["at"] = 0          # presence may have changed
+        output = (r.stderr + r.stdout).strip()[-3000:]
+        if r.returncode == 3:
+            return jsonify({"success": False, "needs_confirm": True, "output": output})
         # exit 2 means "already in that state" - a success, not a failure
         ok = r.returncode in (0, 2)
         return jsonify({
             "success": ok,
             "noop": r.returncode == 2,
-            "output": (r.stdout or r.stderr).strip()[-1500:],
+            "output": output[-1500:],
         })
     except subprocess.TimeoutExpired:
         return jsonify({"success": False, "error": f"{action} timed out"}), 504
