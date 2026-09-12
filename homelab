@@ -50,8 +50,10 @@ usage: homelab <command> [app] [options]
                          smoke-test, roll back on failure. The default channel,
                          stable, installs the newest v* tag and never moves
                          backwards on its own; --channel main follows the
-                         branch; --to v1.2.0 installs exactly that tag, older
-                         or newer. --detach runs it as its own systemd unit
+                         branch; --to <tag|branch|commit> installs exactly
+                         that, older or newer, e.g. --to 8afd747 to try a
+                         commit on the real box before tagging it. --detach
+                         runs the update as its own systemd unit
                          and returns at once, with output in
                          /var/lib/homelab-hub/update.log; that is what the
                          hub's Update button uses, because the update restarts
@@ -599,9 +601,19 @@ cmd_update_self() {
     fi
 
     if [ -n "$TO_TAG" ]; then
+        # A tag, a branch on origin, or a commit hash -- in that order, so
+        # `--to v1.2.0` is the release, `--to feature-x` is origin's branch,
+        # and `--to 8afd747` is that exact commit. This is how a change gets
+        # tried on the real box before it is tagged.
         target_name="$TO_TAG"
-        target="$(git_as_owner -C "$src" rev-parse -q --verify "refs/tags/$TO_TAG^{commit}" 2>/dev/null)" \
-            || die "no such tag: $TO_TAG. Newest tags: $(git_as_owner -C "$src" tag -l 'v[0-9]*' --sort=-v:refname | head -5 | tr '\n' ' ')"
+        if target="$(git_as_owner -C "$src" rev-parse -q --verify "refs/tags/$TO_TAG^{commit}" 2>/dev/null)"; then :
+        elif target="$(git_as_owner -C "$src" rev-parse -q --verify "refs/remotes/origin/$TO_TAG^{commit}" 2>/dev/null)"; then
+            target_name="origin/$TO_TAG"
+        elif target="$(git_as_owner -C "$src" rev-parse -q --verify "$TO_TAG^{commit}" 2>/dev/null)"; then
+            target_name="$(git_as_owner -C "$src" describe --tags --always "$target" 2>/dev/null || echo "${target:0:12}")"
+        else
+            die "no such tag, branch or commit: $TO_TAG. Newest tags: $(git_as_owner -C "$src" tag -l 'v[0-9]*' --sort=-v:refname | head -5 | tr '\n' ' ')"
+        fi
     elif [ "$CHANNEL" = stable ]; then
         target_name="$(git_as_owner -C "$src" tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
         [ -n "$target_name" ] || die "no release tags on origin. The stable channel installs the newest v* tag:

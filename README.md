@@ -56,6 +56,7 @@ app that was running still is. If that fails it redeploys the backup. Without
 
     homelab update self --channel main --apply   # follow the branch instead
     homelab update self --to v1.0.0 --apply      # exactly that tag, e.g. to go back
+    homelab update self --to 8afd747 --apply     # or a commit / branch, to try it before tagging
     homelab version                              # what is deployed here
 
 A channel never moves backwards on its own: if `main` was deployed by hand
