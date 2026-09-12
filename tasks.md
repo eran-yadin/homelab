@@ -26,13 +26,15 @@ What it does, in order:
 
 Dry run (no `--apply`) fetches and compares for real, prints the rest.
 
+**Done on the NUC (2026-09-12):** `~/homelab` is now a git clone (the old
+tar copy is `~/homelab.old`). The NUC's unpushed 2026-09-01 work (ollama app,
+disk check, buildx fix, caddy reload, GPU detect, AMP fixes) was committed as
+a6300f6 first, so nothing was lost. First `update self --apply` ran clean:
+backup, deploy, smoke test all ok; a second run reported up to date, exit 2.
+
 **Still to do:**
 
-- [ ] On the NUC, replace the tar-extracted `~/homelab` with a git clone:
-      `mv ~/homelab ~/homelab.old && git clone https://github.com/eran-yadin/homelab.git ~/homelab`
-- [ ] First run: `deploy --from ~/homelab --apply` once (ships this code and
-      writes `.deployed-rev`), then `update self` from then on.
-- [ ] Test the whole cycle in the VM first (`cd testenv && make up && make sync`).
 - [ ] Maybe: an "Update homelab" button in the hub. Today the hub's control
       endpoint only accepts catalog apps, so `self` is rejected with 404.
 - [ ] No timer. Unattended deploy on every push skips the VM gate.
+- [ ] Remove `~/homelab.old` on the NUC once you are happy with the clone.
