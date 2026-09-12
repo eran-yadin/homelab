@@ -19,6 +19,7 @@ ALL=0
 PURGE=0
 MIGRATE_FROM=""
 DEPLOY_FROM=""
+DETACH=0
 export HOMELAB_APPLY
 
 usage() {
@@ -42,9 +43,14 @@ usage: homelab <command> [app] [options]
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
   update <app>
-  update self [--from <dir>]
+  update self [--from <dir>] [--detach]
                          fetch the latest code from GitHub, back up what is
-                         deployed, deploy it, smoke-test, roll back on failure
+                         deployed, deploy it, smoke-test, roll back on failure.
+                         --detach runs it as its own systemd unit and returns at
+                         once; output goes to /var/lib/homelab-hub/update.log.
+                         That is what the hub's Update button uses, because the
+                         update restarts the hub, and a restart kills the hub's
+                         children.
   delete <app> [--purge] --purge also destroys its data
 
   backup <app> <dir>
@@ -76,6 +82,7 @@ while [ $# -gt 0 ]; do
         --all)    ALL=1 ;;
         --purge)  PURGE=1 ;;
         --from)   shift; MIGRATE_FROM="${1:-}"; DEPLOY_FROM="${1:-}" ;;
+        --detach) DETACH=1 ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -440,6 +447,9 @@ cmd_deploy() {
 # else ("dubious ownership"), and root-owned objects would break the human's
 # next pull, so every git command runs as the checkout's owner.
 
+UPDATE_UNIT=homelab-self-update
+UPDATE_LOG=/var/lib/homelab-hub/update.log   # root writes, the hub user reads
+
 git_as_owner() {
     local u; u="$(owner_user)"
     if [ "$(id -u)" -eq 0 ] && [ "$u" != root ]; then
@@ -525,6 +535,34 @@ cmd_update_self() {
     [ -d "$src/.git" ] || die "$src is not a git clone. update self pulls from GitHub, so:
     git clone https://github.com/eran-yadin/homelab.git $src"
     [ "$src" != "$dest" ] || die "refusing to update $dest from itself; --from must name a git checkout"
+
+    # --- detach ---------------------------------------------------------------
+    # The hub asks for this. It cannot run the update as a child: the update
+    # restarts homelab-hub, systemd kills the service's whole cgroup on restart,
+    # and the update would die halfway with the hub's files half-copied. A
+    # transient unit lives in its own cgroup and outlives the restart. The hub
+    # then tails the log, and closing the browser tab changes nothing.
+    if [ "$DETACH" = 1 ]; then
+        have systemd-run || die "--detach needs systemd-run"
+        if systemctl is-active --quiet "$UPDATE_UNIT" 2>/dev/null; then
+            die "an update is already running (unit $UPDATE_UNIT); its log is $UPDATE_LOG"
+        fi
+        local apply_flag=""; is_apply && apply_flag="--apply"
+        run $SUDO mkdir -p "$(dirname "$UPDATE_LOG")"
+        run_sh "$SUDO sh -c ': > \"$UPDATE_LOG\"'"
+        # SUDO_USER is how the detached copy learns whose checkout this is;
+        # systemd-run starts from a clean environment. The exit code goes into
+        # the log as a marker line, which is what the hub's page waits for.
+        run $SUDO systemd-run --unit="$UPDATE_UNIT" --collect --quiet --no-block \
+            --description="homelab update self" \
+            --setenv=SUDO_USER="$(owner_user)" --setenv=NO_COLOR=1 \
+            --property=StandardOutput=append:"$UPDATE_LOG" \
+            --property=StandardError=append:"$UPDATE_LOG" \
+            /bin/bash -c 'printf "homelab update self started %s\n" "$(date -Iseconds)"; "$0" update self --from "$1" $2; rc=$?; printf "__HOMELAB_UPDATE_DONE__ rc=%s\n" "$rc"; exit $rc' \
+            "$HOMELAB_ROOT/homelab" "$src" "$apply_flag"
+        ok "update running in the background as $UPDATE_UNIT; log: $UPDATE_LOG"
+        return 0
+    fi
 
     # --- fetch + compare ----------------------------------------------------
     # fetch only touches .git, never the working tree, so it is safe in dry-run

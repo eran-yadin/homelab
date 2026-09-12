@@ -10,13 +10,19 @@ Every state-changing action goes through one command -- `sudo homelab <verb>
 """
 
 from flask import Flask, jsonify, request, send_from_directory
-import subprocess, socket, os, time, json, shutil, threading
+import subprocess, socket, os, re, time, json, shutil, threading
 
 app = Flask(__name__, static_folder=".")
 
 HOMELAB = os.environ.get("HOMELAB_BIN", "/opt/homelab/homelab")
 HUB_STATE = os.environ.get("HUB_STATE", "/var/lib/homelab-hub")
 FILTERS_FILE = os.path.join(HUB_STATE, "filters.json")
+
+# `homelab update self --detach` runs as this transient unit and writes here.
+# The unit is what makes the update survive the hub restart it causes.
+UPDATE_UNIT = "homelab-self-update"
+UPDATE_LOG = os.path.join(HUB_STATE, "update.log")
+UPDATE_DONE = re.compile(r"^__HOMELAB_UPDATE_DONE__ rc=(\d+)", re.M)
 
 MAX_FILTERS = 24
 MAX_NAME = 40
@@ -381,6 +387,76 @@ def api_system():
     threading.Thread(target=go, daemon=True).start()
     return jsonify({"success": True, "action": action,
                     "message": f"{action} in 3 seconds"})
+
+
+# ------------------------------------------------------------ self-update
+#
+# The Update button. The update itself is `homelab update self --detach`,
+# which hands the work to a transient systemd unit and returns at once. It has
+# to be that way: the update restarts this very service, and a restart kills
+# every child the service has. So this never owns the update. It starts it,
+# and then only reads a log file and asks systemd whether the unit is still
+# there -- both of which work again the moment the hub is back.
+
+def update_running():
+    try:
+        r = subprocess.run([SYSTEMCTL, "is-active", "--quiet", UPDATE_UNIT],
+                           capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def read_update_log():
+    try:
+        with open(UPDATE_LOG, "r", errors="replace") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+    except Exception as e:
+        return f"(cannot read {UPDATE_LOG}: {e})\n"
+
+
+@app.route("/api/update/start", methods=["POST"])
+def api_update_start():
+    if update_running():
+        return jsonify({"started": False, "running": True,
+                        "message": "an update is already running"})
+    argv = [HOMELAB, "update", "self", "--apply", "--detach"]
+    if not sudo_permits(argv):
+        return jsonify({"started": False,
+                        "error": f"not allowed to run '{HOMELAB}' without a "
+                                 f"password. Is /etc/sudoers.d/homelab-hub "
+                                 f"installed?"}), 403
+    try:
+        r = subprocess.run(["sudo", "-n"] + argv, capture_output=True,
+                           text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return jsonify({"started": False, "error": "starting the update timed out"}), 504
+    if r.returncode != 0:
+        return jsonify({"started": False,
+                        "error": (r.stderr or r.stdout).strip()[-1500:]}), 500
+    return jsonify({"started": True})
+
+
+@app.route("/api/update/log")
+def api_update_log():
+    """The whole log each time. It is a few KB, and the browser tab may have
+    been closed and reopened, so there is no cursor to keep."""
+    text = read_update_log()
+    m = UPDATE_DONE.search(text)
+    running = update_running()
+    return jsonify({
+        "log": text,
+        "running": running,
+        "done": m is not None,
+        "rc": int(m.group(1)) if m else None,
+    })
+
+
+@app.route("/update")
+def update_page():
+    return send_from_directory(".", "update.html")
 
 
 @app.route("/docs")

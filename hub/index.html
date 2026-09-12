@@ -631,6 +631,8 @@
     </div>
     <a class="filter-tab" href="/docs" title="How this works, and how to add an app"
        style="text-decoration:none">Docs</a>
+    <button class="filter-tab" onclick="openUpdate()"
+            title="Install the latest homelab version. Opens a tab that shows the progress.">Update</button>
     <button class="danger-btn" onclick="askReboot()" title="Reboot the server">Reboot</button>
     <span class="clock" id="clock">--:--:--</span>
     <button class="refresh-btn" id="refresh-btn" onclick="refresh()">
@@ -1145,6 +1147,14 @@ async function controlService(id, action) {
   } finally {
     await refresh();
   }
+}
+
+/* ------------------------------------------------------------ self-update */
+// Opens the progress page in its own tab, and that page starts the update.
+// A named target means a second click focuses the same tab instead of
+// starting anything twice; the page itself refuses to double-start anyway.
+function openUpdate() {
+  window.open('/update?start=1', 'homelab-update');
 }
 
 /* ---------------------------------------------------------------- reboot */

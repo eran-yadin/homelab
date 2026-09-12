@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Updating homelab</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07080d; --bg2: #0d1018; --bg3: #111520;
+    --border: #1c2235; --border2: #263047;
+    --text: #c8d4e8; --muted: #5a6a88;
+    --amber: #f5a623; --green: #2ecc71; --green-dim: #0a2d1a;
+    --red: #e74c3c; --red-dim: #2d0a0a; --blue: #3498db;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Rajdhani', sans-serif; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  h1 { margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: 0.05em; }
+  .sub { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.85rem; }
+  a.back {
+    color: var(--muted); text-decoration: none; font-size: 0.75rem;
+    letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;
+    border: 1px solid var(--border); padding: 0.3rem 0.75rem; border-radius: 4px;
+  }
+  a.back:hover { color: var(--text); border-color: var(--border2); }
+
+  .status {
+    margin: 1.2rem 1.5rem 0; padding: 0.9rem 1.1rem; border-radius: 6px;
+    border: 1px solid var(--border2); background: var(--bg3);
+    display: flex; align-items: center; gap: 0.9rem; font-size: 1.05rem; font-weight: 600;
+  }
+  .status .hint { display: block; font-weight: 500; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+  .status.busy  { border-color: var(--amber); }
+  .status.ok    { border-color: var(--green); background: var(--green-dim); }
+  .status.noop  { border-color: var(--blue); }
+  .status.fail  { border-color: var(--red); background: var(--red-dim); }
+  .spinner {
+    width: 18px; height: 18px; border-radius: 50%; flex: none;
+    border: 2px solid var(--border2); border-top-color: var(--amber);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .ok .dot { background: var(--green); }
+  .noop .dot { background: var(--blue); }
+  .fail .dot { background: var(--red); }
+
+  .term-wrap { flex: 1; display: flex; flex-direction: column; padding: 1rem 1.5rem 1.5rem; min-height: 0; }
+  .term-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--muted);
+    letter-spacing: 0.08em; text-transform: uppercase; padding: 0 0.2rem 0.4rem;
+  }
+  pre#term {
+    flex: 1; margin: 0; padding: 1rem; overflow: auto; min-height: 50vh;
+    background: #000; border: 1px solid var(--border2); border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.45;
+    color: #d5dde8; white-space: pre-wrap; word-break: break-word;
+  }
+  pre#term .l-ok   { color: var(--green); }
+  pre#term .l-err  { color: var(--red); }
+  pre#term .l-warn { color: var(--amber); }
+  pre#term .l-step { color: var(--blue); }
+  pre#term .l-sys  { color: var(--muted); font-style: italic; }
+  .foot { color: var(--muted); font-size: 0.8rem; margin: 0.6rem 0.2rem 0; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Updating homelab</h1>
+    <p class="sub">Fetching the latest version, backing up, installing, and checking that everything still runs.</p>
+  </div>
+  <a class="back" href="/">Back to hub</a>
+</header>
+
+<div class="status busy" id="status">
+  <div class="spinner" id="spinner"></div>
+  <div><span id="status-text">Starting…</span><span class="hint" id="status-hint">You can close this tab. The update keeps running on the server.</span></div>
+</div>
+
+<div class="term-wrap">
+  <div class="term-bar"><span>server output</span><span id="term-meta">waiting</span></div>
+  <pre id="term"></pre>
+  <div class="foot">If the screen stops for a few seconds while it says "restarting the hub", that is normal: the update restarts the page you are looking at.</div>
+</div>
+
+<script>
+const term = document.getElementById('term');
+const statusBox = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const statusHint = document.getElementById('status-hint');
+const termMeta = document.getElementById('term-meta');
+
+let lastLog = null;
+let lastChange = Date.now();
+let finished = false;
+let failures = 0;
+
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function colorize(text) {
+  return text.split('\n').map(line => {
+    const t = esc(line);
+    if (/^__HOMELAB_UPDATE_DONE__/.test(line)) return '';
+    if (/^\s*ok\b/.test(line))   return `<span class="l-ok">${t}</span>`;
+    if (/^\s*err\b/.test(line))  return `<span class="l-err">${t}</span>`;
+    if (/^warn\b/.test(line))    return `<span class="l-warn">${t}</span>`;
+    if (/^==>/.test(line))       return `<span class="l-step">${t}</span>`;
+    if (/^\[APPLY\]|^\[dry-run\]|^homelab update self started/.test(line)) return `<span class="l-sys">${t}</span>`;
+    return t;
+  }).join('\n');
+}
+
+function setStatus(cls, text, hint) {
+  statusBox.className = 'status ' + cls;
+  document.getElementById('spinner').outerHTML =
+    cls === 'busy' ? '<div class="spinner" id="spinner"></div>' : '<div class="dot" id="spinner"></div>';
+  statusText.textContent = text;
+  statusHint.textContent = hint || '';
+}
+
+function render(data) {
+  if (data.log !== lastLog) {
+    const atBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 40;
+    term.innerHTML = colorize(data.log);
+    if (atBottom) term.scrollTop = term.scrollHeight;
+    lastLog = data.log;
+    lastChange = Date.now();
+  }
+  termMeta.textContent = data.running ? 'running' : (data.done ? 'finished' : 'idle');
+
+  if (data.done && !data.running) {
+    finished = true;
+    const log = data.log || '';
+    if (data.rc === 2) {
+      setStatus('noop', 'Already up to date', 'Nothing new to install. You can close this tab.');
+    } else if (data.rc === 0) {
+      setStatus('ok', 'Update complete', 'Everything is running. You can close this tab.');
+    } else if (/rolled back/i.test(log)) {
+      setStatus('fail', 'Update failed, previous version restored',
+                'The server was put back to how it was. Send the output below to whoever looks after this box.');
+    } else {
+      setStatus('fail', 'Update failed', 'Send the output below to whoever looks after this box.');
+    }
+    return;
+  }
+  if (!data.running && !data.done) {
+    // Unit gone but no marker: it died before it could write one, or the
+    // log has not been written yet. Give it a moment, then call it.
+    if (Date.now() - lastChange > 30000 && lastLog !== null && lastLog.length > 0) {
+      finished = true;
+      setStatus('fail', 'Update stopped without finishing', 'Send the output below to whoever looks after this box.');
+    }
+    return;
+  }
+  const m = (data.log || '').match(/==> ([^\n]+)\s*$/);
+  setStatus('busy', m ? m[1] : 'Working…', 'You can close this tab. The update keeps running on the server.');
+}
+
+async function poll() {
+  if (finished) return;
+  try {
+    const r = await fetch('/api/update/log', {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    failures = 0;
+    render(await r.json());
+  } catch (e) {
+    failures++;
+    // The hub restarts itself in the middle of every real update. That is
+    // the one moment this page cannot reach it -- keep trying quietly.
+    termMeta.textContent = 'reconnecting… (hub is restarting)';
+    if (failures > 90) {
+      finished = true;
+      setStatus('fail', 'Lost contact with the hub',
+                'Reload this page. If the hub does not come back, the update log is in /var/lib/homelab-hub/update.log on the server.');
+      return;
+    }
+  }
+  setTimeout(poll, 1000);
+}
+
+async function start() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('start') !== '1') { poll(); return; }
+  // Drop the parameter so a reload does not start a second update.
+  history.replaceState(null, '', '/update');
+  try {
+    const r = await fetch('/api/update/start', {method: 'POST'});
+    const data = await r.json();
+    if (data.started) {
+      setStatus('busy', 'Starting…', 'You can close this tab. The update keeps running on the server.');
+    } else if (data.running) {
+      setStatus('busy', 'An update is already running', 'Showing its progress.');
+    } else {
+      finished = true;
+      setStatus('fail', 'Could not start the update', data.error || 'unknown error');
+      term.textContent = data.error || '';
+      return;
+    }
+  } catch (e) {
+    finished = true;
+    setStatus('fail', 'Could not reach the hub', String(e));
+    return;
+  }
+  poll();
+}
+
+start();
+</script>
+</body>
+</html>
