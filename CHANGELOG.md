@@ -2,7 +2,7 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
-## Unreleased
+## v1.1.0 - 2026-09-12
 
 - immich app: photos and videos from your phone, four containers, named volumes, pinned v3.2.0
 - tasks.md: the unified-search plan
