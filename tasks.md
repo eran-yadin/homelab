@@ -40,7 +40,16 @@ to a transient systemd unit (`homelab-self-update`) writing to
 causes and closing the tab changes nothing. The page tails the log through
 the restart and ends with a plain-language result.
 
+**Cleanup (2026-09-12):** `/opt/homelab` had 44 GB of test-VM leftovers
+(`run/data.img`, `golden/*.qcow2`, a stray `Makefile` and `cloud-init/`),
+and the first backups copied all of it. They now live in
+`~/testenv-leftover-from-opt/` on the NUC; delete that directory if the test
+VM disk is not wanted. The backup step skips VM images and refuses anything
+over 200 MB.
+
 **Still to do:**
 
+- [ ] Delete `~/testenv-leftover-from-opt/` on the NUC (44 GB) if not needed.
 - [ ] No timer. Unattended deploy on every push skips the VM gate.
-- [ ] Versioning: see the discussion in the session of 2026-09-12.
+- [ ] Versioning: VERSION file + git tags, `homelab version`, show it in the
+      hub, CHANGELOG, and let `update self` track tags instead of main.
