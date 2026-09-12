@@ -78,7 +78,8 @@
 <header>
   <div>
     <h1>Updating homelab</h1>
-    <p class="sub">Fetching the latest version, backing up, installing, and checking that everything still runs.</p>
+    <p class="sub">Fetching the latest release, backing up, installing, and checking that everything still runs.
+      <span id="installed"></span></p>
   </div>
   <a class="back" href="/">Back to hub</a>
 </header>
@@ -140,6 +141,7 @@ function render(data) {
     lastChange = Date.now();
   }
   termMeta.textContent = data.running ? 'running' : (data.done ? 'finished' : 'idle');
+  if (data.version) document.getElementById('installed').textContent = 'Installed now: ' + data.version + '.';
 
   if (data.done && !data.running) {
     finished = true;

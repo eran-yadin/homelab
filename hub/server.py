@@ -23,6 +23,16 @@ FILTERS_FILE = os.path.join(HUB_STATE, "filters.json")
 UPDATE_UNIT = "homelab-self-update"
 UPDATE_LOG = os.path.join(HUB_STATE, "update.log")
 UPDATE_DONE = re.compile(r"^__HOMELAB_UPDATE_DONE__ rc=(\d+)", re.M)
+VERSION_FILE = os.path.join(os.path.dirname(HOMELAB), "VERSION")
+
+
+def homelab_version():
+    """Written by `homelab deploy`; a tag name, or tag-N-ghash past a tag."""
+    try:
+        with open(VERSION_FILE) as f:
+            return f.read().strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 MAX_FILTERS = 24
 MAX_NAME = 40
@@ -305,6 +315,7 @@ def api_status():
         "system": read_system(),
         "net": {
             "hostname": HOSTNAME,
+            "version": homelab_version(),
             "local_ip": local_ip(),
             "tailscale_ip": tsip,
             "tailscale_name": tsdns,
@@ -451,6 +462,7 @@ def api_update_log():
         "running": running,
         "done": m is not None,
         "rc": int(m.group(1)) if m else None,
+        "version": homelab_version(),
     })
 
 

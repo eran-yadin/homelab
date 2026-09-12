@@ -1052,7 +1052,8 @@ function updateSystem(sys) {
 
 function updateNet(net) {
   NET = net || {};
-  const bits = [NET.hostname, NET.local_ip].filter(Boolean).join(' — ');
+  const bits = [NET.hostname, NET.local_ip, NET.version && ('homelab ' + NET.version)]
+    .filter(Boolean).join(' — ');
   document.getElementById('brand-sub').textContent = bits || 'unknown host';
   const tsBtn = document.getElementById('mode-tailscale');
   tsBtn.disabled = !NET.tailscale_up;

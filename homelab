@@ -20,6 +20,8 @@ PURGE=0
 MIGRATE_FROM=""
 DEPLOY_FROM=""
 DETACH=0
+CHANNEL=stable
+TO_TAG=""
 export HOMELAB_APPLY
 
 usage() {
@@ -43,14 +45,18 @@ usage: homelab <command> [app] [options]
   download <app>         fetch/build only, do not start
   start|stop|restart <app>
   update <app>
-  update self [--from <dir>] [--detach]
-                         fetch the latest code from GitHub, back up what is
-                         deployed, deploy it, smoke-test, roll back on failure.
-                         --detach runs it as its own systemd unit and returns at
-                         once; output goes to /var/lib/homelab-hub/update.log.
-                         That is what the hub's Update button uses, because the
-                         update restarts the hub, and a restart kills the hub's
-                         children.
+  update self [--channel stable|main] [--to <tag>] [--from <dir>] [--detach]
+                         fetch from GitHub, back up what is deployed, deploy,
+                         smoke-test, roll back on failure. The default channel,
+                         stable, installs the newest v* tag and never moves
+                         backwards on its own; --channel main follows the
+                         branch; --to v1.2.0 installs exactly that tag, older
+                         or newer. --detach runs it as its own systemd unit
+                         and returns at once, with output in
+                         /var/lib/homelab-hub/update.log; that is what the
+                         hub's Update button uses, because the update restarts
+                         the hub and a restart kills the hub's children.
+  version                which release is deployed here (from VERSION)
   delete <app> [--purge] --purge also destroys its data
 
   backup <app> <dir>
@@ -83,6 +89,8 @@ while [ $# -gt 0 ]; do
         --purge)  PURGE=1 ;;
         --from)   shift; MIGRATE_FROM="${1:-}"; DEPLOY_FROM="${1:-}" ;;
         --detach) DETACH=1 ;;
+        --channel) shift; CHANNEL="${1:-}" ;;
+        --to)     shift; TO_TAG="${1:-}" ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -399,10 +407,13 @@ deploy_tree() {  # deploy_tree <src>
     # Remember which commit is deployed, so `update self` can tell whether
     # GitHub has anything newer without guessing from file timestamps.
     local rev; rev="$(git_as_owner -C "$src" rev-parse HEAD 2>/dev/null || true)"
+    local ver; ver="$(git_as_owner -C "$src" describe --tags --always 2>/dev/null || true)"
     if [ -n "$rev" ]; then
         printf '%s' "$rev" | run_write "$dest/.deployed-rev" 0644
+        printf '%s' "$ver" | run_write "$dest/VERSION" 0644
     elif [ -f "$src/.deployed-rev" ]; then       # rolling back from a backup
         run $SUDO cp "$src/.deployed-rev" "$dest/.deployed-rev"
+        [ -f "$src/VERSION" ] && run $SUDO cp "$src/VERSION" "$dest/VERSION"
     fi
 
     # The hub serves its own copy of server.py and index.html from
@@ -558,36 +569,72 @@ cmd_update_self() {
             --setenv=SUDO_USER="$(owner_user)" --setenv=NO_COLOR=1 \
             --property=StandardOutput=append:"$UPDATE_LOG" \
             --property=StandardError=append:"$UPDATE_LOG" \
-            /bin/bash -c 'printf "homelab update self started %s\n" "$(date -Iseconds)"; "$0" update self --from "$1" $2; rc=$?; printf "__HOMELAB_UPDATE_DONE__ rc=%s\n" "$rc"; exit $rc' \
-            "$HOMELAB_ROOT/homelab" "$src" "$apply_flag"
+            /bin/bash -c 'printf "homelab update self started %s\n" "$(date -Iseconds)"; "$0" update self --from "$1" --channel "$3" ${4:+--to "$4"} $2; rc=$?; printf "__HOMELAB_UPDATE_DONE__ rc=%s\n" "$rc"; exit $rc' \
+            "$HOMELAB_ROOT/homelab" "$src" "$apply_flag" "$CHANNEL" "$TO_TAG"
         ok "update running in the background as $UPDATE_UNIT; log: $UPDATE_LOG"
         return 0
     fi
 
-    # --- fetch + compare ----------------------------------------------------
+    # --- fetch + choose the target ----------------------------------------------
     # fetch only touches .git, never the working tree, so it is safe in dry-run
     # and the comparison below is real either way.
+    #
+    # Releases are git tags. The stable channel installs the newest v* tag,
+    # so a push to main changes nothing on this box until someone tags it.
+    # That is the gate for the hub's Update button: it can only ever install a
+    # state that was deliberately named.
     log "fetching origin in $src"
-    git_as_owner -C "$src" fetch --quiet origin || die "git fetch failed"
-    local branch remote local_rev deployed
-    branch="$(git_as_owner -C "$src" rev-parse --abbrev-ref HEAD)"
-    remote="$(git_as_owner -C "$src" rev-parse "origin/$branch" 2>/dev/null)" \
-        || die "origin has no branch '$branch'"
-    local_rev="$(git_as_owner -C "$src" rev-parse HEAD)"
-    deployed="$(cat "$dest/.deployed-rev" 2>/dev/null || true)"
+    git_as_owner -C "$src" fetch --quiet --tags --prune origin || die "git fetch failed"
+    if [ -n "$(git_as_owner -C "$src" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        die "$src has uncommitted changes. update self deploys the working tree, so
+    commit or stash them first (or use 'homelab deploy --from $src' on purpose)."
+    fi
 
-    printf '   deployed  %s\n   checkout  %s\n   origin    %s  (%s)\n' \
-        "${deployed:-unknown}" "$local_rev" "$remote" "$branch" >&2
-    if [ "$deployed" = "$remote" ]; then
-        ok "already up to date at ${remote:0:12} - nothing to do"
+    local deployed deployed_name target target_name branch=main
+    deployed="$(cat "$dest/.deployed-rev" 2>/dev/null || true)"
+    deployed_name="$(cat "$dest/VERSION" 2>/dev/null || true)"
+    [ -n "$deployed_name" ] || deployed_name="$(git_as_owner -C "$src" describe --tags --always "${deployed:-HEAD}" 2>/dev/null || echo unknown)"
+
+    if [ -n "$TO_TAG" ]; then
+        target_name="$TO_TAG"
+        target="$(git_as_owner -C "$src" rev-parse -q --verify "refs/tags/$TO_TAG^{commit}" 2>/dev/null)" \
+            || die "no such tag: $TO_TAG. Newest tags: $(git_as_owner -C "$src" tag -l 'v[0-9]*' --sort=-v:refname | head -5 | tr '\n' ' ')"
+    elif [ "$CHANNEL" = stable ]; then
+        target_name="$(git_as_owner -C "$src" tag -l 'v[0-9]*' --sort=-v:refname | head -1)"
+        [ -n "$target_name" ] || die "no release tags on origin. The stable channel installs the newest v* tag:
+    git tag -a v1.0.0 -m 'first release' && git push origin v1.0.0
+or follow the branch instead with --channel main."
+        target="$(git_as_owner -C "$src" rev-parse "refs/tags/$target_name^{commit}")"
+    elif [ "$CHANNEL" = main ]; then
+        branch="$(git_as_owner -C "$src" rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+        branch="${branch:-main}"
+        target_name="origin/$branch"
+        target="$(git_as_owner -C "$src" rev-parse "origin/$branch" 2>/dev/null)" || die "origin has no branch '$branch'"
+    else
+        die "unknown channel: $CHANNEL (stable or main)"
+    fi
+
+    printf '   deployed  %-14s %s\n   target    %-14s %s  (%s)\n' \
+        "$deployed_name" "${deployed:-unknown}" "$target_name" "$target" \
+        "${TO_TAG:+pinned}${TO_TAG:-channel $CHANNEL}" >&2
+    if [ "$deployed" = "$target" ]; then
+        ok "already up to date at $target_name - nothing to do"
         exit $EX_NOOP
     fi
-    if [ "$local_rev" != "$remote" ]; then
-        log "new commits on origin/$branch:"
-        git_as_owner -C "$src" log --oneline "$local_rev..$remote" 2>/dev/null | sed 's/^/     /' >&2 || true
-        if ! git_as_owner -C "$src" merge-base --is-ancestor "$local_rev" "$remote"; then
-            die "$src has local commits that are not on origin. Push or reset them first;
-    update self only fast-forwards."
+    # A channel never moves backwards by itself. If main was deployed by hand
+    # and is ahead of the newest tag, the Update button must not undo that;
+    # --to is the explicit way to go back.
+    if [ -z "$TO_TAG" ] && [ -n "$deployed" ] \
+       && git_as_owner -C "$src" merge-base --is-ancestor "$target" "$deployed" 2>/dev/null; then
+        ok "deployed $deployed_name is ahead of $target_name - nothing to do (tag a new release to move $CHANNEL forward)"
+        exit $EX_NOOP
+    fi
+    if [ -n "$deployed" ]; then
+        if git_as_owner -C "$src" merge-base --is-ancestor "$deployed" "$target" 2>/dev/null; then
+            log "changes $deployed_name -> $target_name:"
+            git_as_owner -C "$src" log --oneline "$deployed..$target" 2>/dev/null | head -20 | sed 's/^/     /' >&2 || true
+        else
+            warn "going back: $deployed_name -> $target_name"
         fi
     fi
 
@@ -620,10 +667,15 @@ cmd_update_self() {
     printf '%s\n' "$before" | run_write "$bk/status-before.txt" 0644
     run chown -R "$(owner_user):$(owner_group)" "$bk"
 
-    # --- pull + deploy -----------------------------------------------------------
-    if [ "$local_rev" != "$remote" ]; then
-        log "pulling $branch"
-        run git_as_owner -C "$src" pull --ff-only --quiet || die "git pull failed; $src may have uncommitted changes that conflict"
+    # --- check out + deploy --------------------------------------------------------
+    if [ -z "$TO_TAG" ] && [ "$CHANNEL" = main ]; then
+        log "fast-forwarding $branch"
+        run git_as_owner -C "$src" checkout --quiet "$branch"
+        run git_as_owner -C "$src" merge --ff-only --quiet "$target" \
+            || die "$src/$branch has commits that are not on origin; push or reset them first"
+    else
+        log "checking out $target_name"
+        run git_as_owner -C "$src" checkout --quiet --detach "$target"
     fi
     deploy_tree "$src"
 
@@ -635,7 +687,7 @@ cmd_update_self() {
     # --- smoke test, roll back on failure ------------------------------------------
     log "smoke test"
     if smoke_test "$dest" "$before"; then
-        ok "updated ${deployed:-?} -> ${remote:0:12}. backup: $bk"
+        ok "updated $deployed_name -> $target_name. backup: $bk"
         return 0
     fi
     err "smoke test failed - rolling back to $bk"
@@ -644,6 +696,23 @@ cmd_update_self() {
         die "rolled back to ${deployed:-the previous deploy}. the new code is still checked out in $src"
     fi
     die "rollback deployed but the smoke test still fails. backup is in $bk; the checkout is $src"
+}
+
+cmd_version() {
+    # deploy_tree writes VERSION (git describe: v1.2.0, or v1.2.0-3-gabc1234
+    # past a tag, or a bare hash before any tag). A checkout asks git directly.
+    local v r
+    v="$(cat "$HOMELAB_ROOT/VERSION" 2>/dev/null || true)"
+    r="$(cat "$HOMELAB_ROOT/.deployed-rev" 2>/dev/null || true)"
+    if [ -z "$v" ] && [ -d "$HOMELAB_ROOT/.git" ]; then
+        v="$(git_as_owner -C "$HOMELAB_ROOT" describe --tags --always --dirty 2>/dev/null || true)"
+        r="$(git_as_owner -C "$HOMELAB_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    fi
+    if [ "$JSON" = 1 ]; then
+        printf '{"version":"%s","rev":"%s"}\n' "$(json_escape "${v:-unknown}")" "$(json_escape "$r")"
+    else
+        printf '%s\n' "${v:-unknown}"
+    fi
 }
 
 cmd_simple() {  # start|stop|update
@@ -749,6 +818,7 @@ case "$CMD" in
     install) cmd_install ;;
     setup)   cmd_setup ;;
     deploy)  cmd_deploy ;;
+    version|--version|-V) cmd_version ;;
     update)  if [ "${ARGS[0]:-}" = self ]; then cmd_update_self; else cmd_simple "$CMD"; fi ;;
     download|start|stop) cmd_simple "$CMD" ;;
     restart) cmd_restart ;;
