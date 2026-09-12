@@ -60,6 +60,20 @@ explicit environment, and the version pinned in env.template (v3.2.0).
 CPU only; hardware acceleration (openvino ML, quicksync transcoding via
 /dev/dri) is a later step, as is a `download.sh` override like jellyfin's.
 
+Tested locally under Docker Desktop (all four healthy, migrations ran, ping,
+UI 200), released as v1.1.0, installed on nucserver: `homelab status immich`
+reports running/healthy 4/4, hub links to http://10.0.0.5:2283. The test VM
+could not be used: qemu is not on the NUC and cachy-rig was offline.
+
+- [ ] Open http://10.0.0.5:2283, create the first (admin) account, install the phone app.
+- [ ] `homelab download caddy --apply` to add the immich.nuc route.
+- [ ] Hardware acceleration on the NUC (HD 620: openvino ML image + /dev/dri).
+
+**Verb audit (2026-09-12):** every app in the store implements all eight
+verbs, its own or inherited from its kind; every stateful app has
+backup/restore, and the stateful systemd apps (amp, netmon) declare
+`backup_paths`. Nothing missing.
+
 ## Unified search ("search everything", launcher style)
 
 One box in the hub, or a keyboard shortcut, that fans a query out to every
