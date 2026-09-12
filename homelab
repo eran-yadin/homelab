@@ -594,9 +594,28 @@ cmd_update_self() {
     # --- back up what is deployed ----------------------------------------------
     local bk; bk="$(owner_home)/backups/homelab-self-$(date +%Y%m%d-%H%M%S)"
     local before; before="$(snapshot_states "$dest")"
-    log "backing up $dest and /opt/homelab-hub -> $bk"
-    run mkdir -p "$bk"
-    run cp -a "$dest" "$bk/homelab"
+
+    # The engine is a few MB of scripts. Anything bigger in $dest is not the
+    # engine -- the test VM's disk images have ended up there before, 44 GB of
+    # them -- and copying that on every update filled the disk. Skip what the
+    # deploy itself skips, and refuse outright if what is left is still big.
+    local -a bk_excl=(--exclude=.git --exclude=testenv/golden --exclude=testenv/run
+                      --exclude=./golden --exclude=./run --exclude='*.qcow2'
+                      --exclude='*.img' --exclude=__pycache__)
+    local bk_mb=0
+    if [ -d "$dest" ]; then
+        bk_mb="$(tar -cf - -C "$dest" "${bk_excl[@]}" . 2>/dev/null | wc -c || true)"
+        bk_mb=$(( ${bk_mb:-0} / 1048576 ))
+    fi
+    if [ "$bk_mb" -gt 200 ]; then
+        err "$dest is ${bk_mb} MB even after skipping VM images; the engine should be a few MB."
+        err "    Something large is sitting in it. Largest entries:"
+        du -sm "$dest"/* 2>/dev/null | sort -rn | head -5 | sed 's/^/        /' >&2
+        die "move that out of $dest and run update self again"
+    fi
+    log "backing up $dest (${bk_mb} MB) and /opt/homelab-hub -> $bk"
+    run mkdir -p "$bk/homelab"
+    run_sh "tar -cf - -C '$dest' ${bk_excl[*]} . | tar -xf - -C '$bk/homelab'"
     if [ -d /opt/homelab-hub ]; then run cp -a /opt/homelab-hub "$bk/homelab-hub"; fi
     printf '%s\n' "$before" | run_write "$bk/status-before.txt" 0644
     run chown -R "$(owner_user):$(owner_group)" "$bk"
