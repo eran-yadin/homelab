@@ -83,7 +83,7 @@ app backs up its volumes (minus `bulk_volumes`, e.g. Immich's library) and
 asks before recreating. Exit 3 = asked, nobody answered; `--yes` answers.
 The hub shows a dialog. Restore path printed after the backup.
 
-- [ ] On the NUC, switch the installed Immich's `.env` from v3.2.0 to `release`.
+- [x] On the NUC, switch the installed Immich's `.env` from v3.2.0 to `release` (done, v1.2.0 deployed).
 - [ ] Same treatment for kind=systemd apps (amp, netmon): back up `backup_paths` before `update`.
 
 ## Unified search ("search everything", launcher style)
