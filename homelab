@@ -619,7 +619,7 @@ or follow the branch instead with --channel main."
 
     printf '   deployed  %-14s %s\n   target    %-14s %s  (%s)\n' \
         "$deployed_name" "${deployed:-unknown}" "$target_name" "$target" \
-        "${TO_TAG:+pinned}${TO_TAG:-channel $CHANNEL}" >&2
+        "${TO_TAG:+pinned }${TO_TAG:-channel $CHANNEL}" >&2
     if [ "$deployed" = "$target" ]; then
         ok "already up to date at $target_name - nothing to do"
         exit $EX_NOOP
