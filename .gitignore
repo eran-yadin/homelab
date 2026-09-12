@@ -2,3 +2,5 @@ testenv/golden/
 testenv/run/
 *.qcow2
 *.img
+__pycache__/
+*.pyc
