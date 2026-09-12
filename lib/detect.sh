@@ -43,6 +43,25 @@ detect_host() {
     fi
     [ -z "$DET_GPU" ] && DET_GPU=none
 
+    # VRAM is the binding constraint for anything running a model, and it is
+    # not something you can infer from the GPU name.
+    DET_VRAM_MB=0
+    DET_GPU_NAME=""
+    if have nvidia-smi; then
+        DET_VRAM_MB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc '0-9')"
+        DET_GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+        DET_VRAM_MB="${DET_VRAM_MB:-0}"
+    fi
+
+    # Docker can only hand a GPU to a container if the container toolkit is
+    # installed; the driver alone is not enough.
+    DET_NVIDIA_RUNTIME=no
+    if have docker && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+        DET_NVIDIA_RUNTIME=yes
+    elif have nvidia-ctk; then
+        DET_NVIDIA_RUNTIME=partial
+    fi
+
     # --- privilege / network -------------------------------------------
     if [ "$(id -u)" -eq 0 ]; then DET_ROOT=yes
     elif sudo -n true 2>/dev/null; then DET_ROOT=sudo-nopasswd
@@ -98,7 +117,12 @@ detect_print() {
     printf '  cpus        %s\n' "$DET_CPUS"
     printf '  ram         %s MB\n' "$DET_RAM_MB"
     printf '  disk free   %s MB (on /)\n' "$DET_DISK_FREE_MB"
-    printf '  gpu         %s\n' "$DET_GPU"
+    if [ "${DET_VRAM_MB:-0}" -gt 0 ] 2>/dev/null; then
+        printf '  gpu         %s (%s, %s MB VRAM, container runtime: %s)\n' \
+            "$DET_GPU" "${DET_GPU_NAME:-?}" "$DET_VRAM_MB" "$DET_NVIDIA_RUNTIME"
+    else
+        printf '  gpu         %s\n' "$DET_GPU"
+    fi
     printf '\n%sruntime%s\n' "$C_B" "$C_RST"
     printf '  docker      %s\n' "$DET_DOCKER"
     printf '  compose     %s\n' "$DET_COMPOSE"
@@ -123,6 +147,8 @@ detect_json() {
         "$DET_ARCH" "$DET_KERNEL" "$DET_INIT" "$DET_VIRT"
     printf '"cpus":%s,"ram_mb":%s,"disk_free_mb":%s,"gpu":"%s",' \
         "$DET_CPUS" "$DET_RAM_MB" "${DET_DISK_FREE_MB:-0}" "$DET_GPU"
+    printf '"vram_mb":%s,"gpu_name":"%s","nvidia_runtime":"%s",' \
+        "${DET_VRAM_MB:-0}" "$(json_escape "${DET_GPU_NAME:-}")" "${DET_NVIDIA_RUNTIME:-no}"
     printf '"docker":"%s","compose":"%s","mesh":"%s",' \
         "$DET_DOCKER" "$DET_COMPOSE" "$DET_MESH"
     printf '"privilege":"%s","ip":"%s","gateway":"%s",' \

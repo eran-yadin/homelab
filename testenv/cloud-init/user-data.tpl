@@ -90,10 +90,16 @@ runcmd:
   # /var/lib/containerd. Moving only the former still fills the ~3 GB root.
   # Bind both onto the big disk. Done here rather than via cloud-init `mounts`
   # because the bind sources only exist after /data itself is mounted.
-  - [ mkdir, -p, /data/docker, /data/containerd, /var/lib/docker, /var/lib/containerd ]
+  # /var/cache and /home go on the big disk too. The cloud image root is
+  # ~2.8 GB, and an apt cache plus one JRE fills it -- which surfaces as
+  # "Unable to locate package", not as a disk error.
+  - [ mkdir, -p, /data/docker, /data/containerd, /data/aptcache, /data/home,
+      /var/lib/docker, /var/lib/containerd ]
+  - [ bash, -c, "cp -a /var/cache/apt /data/aptcache/ 2>/dev/null || true" ]
+  - [ mount, --bind, /data/aptcache, /var/cache/apt ]
   - [ mount, --bind, /data/docker, /var/lib/docker ]
   - [ mount, --bind, /data/containerd, /var/lib/containerd ]
-  - [ bash, -c, "printf '/data/docker /var/lib/docker none bind 0 0\\n/data/containerd /var/lib/containerd none bind 0 0\\n' >> /etc/fstab" ]
+  - [ bash, -c, "printf '/data/docker /var/lib/docker none bind 0 0\\n/data/containerd /var/lib/containerd none bind 0 0\\n/data/aptcache /var/cache/apt none bind 0 0\\n' >> /etc/fstab" ]
   - [ systemctl, enable, --now, nftables ]
   - [ bash, -c, "echo 'homelab testenv ready' > /etc/motd" ]
 
