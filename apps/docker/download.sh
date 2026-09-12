@@ -5,9 +5,48 @@
 set -euo pipefail
 detect_host
 
+# `docker compose build` needs buildx >= 0.17. Debian ships docker-buildx
+# 0.13, which satisfies "is buildx present?" and then fails the build with
+# "compose build requires buildx 0.17.0 or later" -- long after the install
+# reported success.
+buildx_ok() {
+    local v
+    v="$(docker buildx version 2>/dev/null \
+         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    [ -n "$v" ] || return 1
+    [ "$(printf '%s\n0.17.0\n' "$v" | sort -V | head -1)" = "0.17.0" ]
+}
+
 if have docker && docker compose version >/dev/null 2>&1; then
-    ok "docker + compose plugin already present"
-    exit $EX_NOOP
+    if buildx_ok; then
+        ok "docker + compose plugin already present"
+        exit $EX_NOOP
+    fi
+    warn "docker is present but buildx is $(docker buildx version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo missing)"
+    warn "  compose needs 0.17.0 or later to build an image from a Dockerfile."
+    if [ "$DET_FAMILY" = debian ]; then
+        # Debian's docker-buildx and docker-ce's docker-buildx-plugin both own
+        # /usr/libexec/docker/cli-plugins/docker-buildx, so dpkg refuses to
+        # install the second while the first is present. Nothing depends on the
+        # Debian one -- it is only the plugin binary -- so it goes first.
+        if dpkg -s docker-buildx >/dev/null 2>&1; then
+            warn "Debian's docker-buildx package owns the same file and is the"
+            warn "  reason the newer plugin cannot install. Removing it."
+            run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq docker-buildx
+        fi
+        log "installing docker-buildx-plugin from the docker repository"
+        run $SUDO apt-get update -qq
+        run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-buildx-plugin
+        if is_apply && ! buildx_ok; then
+            err "buildx is still too old. Debian's 'docker-buildx' package can"
+            err "    shadow the docker-ce plugin -- remove it and retry:"
+            err "        sudo apt-get remove docker-buildx"
+            exit 1
+        fi
+        ok "buildx updated"
+        exit $EX_OK
+    fi
+    die "buildx is too old and this host is not debian-family; upgrade it by hand"
 fi
 
 case "$DET_FAMILY" in

@@ -794,9 +794,36 @@ function copyLink(id) {
   const svc = CONFIG.find(s => s.id === id);
   const url = svc && urlFor(svc);
   if (!url) return;
-  navigator.clipboard.writeText(url)
-    .then(() => toast(`Copied ${url}`, 'success'))
-    .catch(() => toast('Could not copy', 'error'));
+  // navigator.clipboard only exists in a secure context: https, or
+  // localhost. The hub is normally reached over plain http on a LAN address,
+  // where it is undefined -- so the button silently did nothing. Fall back to
+  // the old execCommand path, which has no such restriction.
+  const done = () => toast(`Copied ${url}`, 'success');
+  const fail = () => toast(`Could not copy — the address is ${url}`, 'error');
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(url).then(done).catch(() => legacyCopy(url, done, fail));
+  } else {
+    legacyCopy(url, done, fail);
+  }
+}
+
+function legacyCopy(text, done, fail) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  // Keep it off-screen but still focusable; display:none cannot be selected.
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0';
+  document.body.appendChild(ta);
+  try {
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);   // iOS needs the explicit range
+    document.execCommand('copy') ? done() : fail();
+  } catch (e) {
+    fail();
+  } finally {
+    ta.remove();
+  }
 }
 
 /* -------------------------------------------------------------- filters */

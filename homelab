@@ -230,7 +230,29 @@ install_apps() {   # install_apps <app>...
     local order; order="$(plan_for "$@")"
     local cnt; cnt="$(printf '%s\n' "$order" | grep -c .)"
     log "install order ($cnt): $(printf '%s ' $order)"
-    local a rc failed=""
+    # Apps declare needs_disk_mb and nothing ever checked it. Running out of
+    # space mid-install does not say so: apt fails to write its index and then
+    # reports "Unable to locate package", which reads as a missing repository.
+    local a
+    for a in $order; do
+        app_load "$a"
+        [ "${APP_DISK:-0}" -gt 0 ] 2>/dev/null || continue
+        local target=/ free
+        if [ "$APP_KIND" = compose ] && [ -d /var/lib/docker ]; then
+            target=/var/lib/docker
+        fi
+        free="$(df -Pm "$target" 2>/dev/null | awk 'NR==2{print $4}')"
+        [ -n "$free" ] || continue
+        if [ "$free" -lt "$APP_DISK" ]; then
+            err "$a wants about ${APP_DISK} MB on $target, but ${free} MB is free."
+            err "    Stopping here rather than failing partway through: out of space"
+            err "    rarely says so. apt reports 'Unable to locate package' when it"
+            err "    cannot write its index, which looks like a missing repository."
+            exit 1
+        fi
+    done
+
+    local rc failed=""
     for a in $order; do
         log "--- $a: download ---"
         set +e; app_run_verb "$a" download; rc=$?; set -e

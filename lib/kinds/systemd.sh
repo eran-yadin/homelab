@@ -127,7 +127,24 @@ status)
     sub="$(systemctl show -p SubState --value "$UNIT" 2>/dev/null || echo unknown)"
     res="$(systemctl show -p Result   --value "$UNIT" 2>/dev/null || echo unknown)"
     enabled=false; if unit_enabled; then enabled=true; fi
-    if unit_active; then
+
+    # Some units are a launcher that exits once it has started what it manages
+    # -- AMP's ampinstmgr is one, and its panel serves happily while the unit
+    # reads "inactive (dead)". When an app declares health_url, what the
+    # service actually answers outranks what systemd says about the unit.
+    probe=""
+    if [ -n "${APP_HEALTH_URL:-}" ] && have curl; then
+        if curl -fsS -o /dev/null --max-time 3 "$APP_HEALTH_URL" 2>/dev/null; then
+            probe=up
+        else
+            probe=down
+        fi
+    fi
+
+    if [ "$probe" = up ]; then
+        state=running
+        health=healthy
+    elif unit_active; then
         state=running
         health=healthy
     elif [ "$res" != success ] && [ "$res" != unknown ]; then

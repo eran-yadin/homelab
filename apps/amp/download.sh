@@ -51,10 +51,14 @@ warn "about to download $GETAMP_URL and execute it as root."
 warn "  That is CubeCoders' supported install path; there is no apt repository."
 warn "  It creates an 'amp' system user and installs under /home/amp."
 
-log "running the unattended installer (this takes a few minutes)"
+# USE_ANSWERS gets past the install prompts, but getamp.sh then blocks on
+# "Waiting for user to complete first-time setup in browser..." -- the admin
+# account is created in the panel, and no environment variable skips it. Cap
+# the run and judge success by what exists afterwards, not by its exit code.
+log "running the unattended installer (several minutes)"
 # USE_ANSWERS=y is what turns off the interactive prompts. The ANSWER_* names
 # are CubeCoders'; see their GetAMP Unattended Installations guide.
-run_sh "$SUDO env \
+run_sh "$SUDO timeout --foreground 1800 env \
     USE_ANSWERS=y \
     ANSWER_AMPUSER='${AMP_ADMIN_USER:-admin}' \
     ANSWER_AMPPASS='${AMP_ADMIN_PASSWORD}' \
@@ -63,7 +67,7 @@ run_sh "$SUDO env \
     ANSWER_INSTALLSRCDSLIBS='${AMP_INSTALL_SRCDS_LIBS:-n}' \
     ANSWER_INSTALLDOCKER='${AMP_INSTALL_DOCKER:-n}' \
     ANSWER_HTTPS='${AMP_INSTALL_HTTPS:-n}' \
-    bash -c 'wget -qO- $GETAMP_URL | bash'"
+    bash -c 'wget -qO- $GETAMP_URL | bash' </dev/null || true"
 
 if is_apply; then
     have ampinstmgr || die "getamp.sh finished but ampinstmgr is not on PATH.
@@ -72,5 +76,9 @@ if is_apply; then
     log "panel:    http://${DET_IP:-localhost}:8080"
     log "username: ${AMP_ADMIN_USER:-admin}"
     log "password: in $APP_STATE/.env  (AMP_ADMIN_PASSWORD)"
+    warn "First-time setup finishes in the browser -- open the panel and complete"
+    warn "  it. Nothing here can do that step for you."
     warn "AMP is free for personal use; enter a licence in the panel for more."
+    warn "ampinstmgr runs instances as the 'amp' system user. To manage them:"
+    warn "      sudo su -l amp -c 'ampinstmgr status'"
 fi

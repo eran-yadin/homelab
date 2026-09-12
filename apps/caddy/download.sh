@@ -43,4 +43,13 @@ if [ -n "$generated" ]; then
     warn "  (add to /etc/hosts, or let AdGuard answer for *.$DOMAIN)"
 fi
 
+# Writing the files is not enough: caddy reads them at config load, so a route
+# generated while it is running stays inactive until something reloads it.
+# `caddy reload` is graceful -- no dropped connections, unlike a restart.
+if dk_resolve && "${DK[@]}" inspect caddy >/dev/null 2>&1 \
+   && [ "$("${DK[@]}" inspect -f '{{.State.Running}}' caddy 2>/dev/null)" = true ]; then
+    log "reloading caddy so the new routes take effect"
+    run "${DK[@]}" exec caddy caddy reload --config /etc/caddy/Caddyfile
+fi
+
 exec bash "$HOMELAB_ROOT/lib/kinds/compose.sh" download "$@"

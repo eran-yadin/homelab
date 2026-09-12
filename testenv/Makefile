@@ -28,6 +28,9 @@ CONSOLE   := $(RUN)/console.log
 
 # The VM is a small machine on purpose: if an app needs more than the NUC
 # has (2 cores / 16 GB), we want to find that out here.
+# The cloud image ships a 3 GB root, which one JRE and an apt cache can fill.
+# growpart expands the filesystem to this on first boot.
+ROOT_SIZE := 20G
 CPUS      := 2
 MEM       := 4096
 DATA_SIZE := 40G
@@ -56,7 +59,7 @@ NETDEV    := user,id=n0,net=10.100.0.0/24,host=10.100.0.2,dns=10.100.0.3,$(HOSTF
 
 check:
 	set -e
-	for c in qemu-system-x86_64 mkfs.vfat mcopy ssh-keygen curl; do
+	for c in qemu-system-x86_64 qemu-img mkfs.vfat mcopy ssh-keygen curl; do
 	  command -v $$c >/dev/null || { echo "missing: $$c"; exit 1; }
 	done
 	[ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "no access to /dev/kvm"; exit 1; }
@@ -83,6 +86,8 @@ $(GOLDEN):
 	curl -fsSL $(IMG_BASE)/SHA512SUMS | grep " $(IMG_NAME)$$" \
 	  | sed 's| .*| golden/$(IMG_NAME).part|' | sha512sum -c -
 	mv golden/$(IMG_NAME).part $(GOLDEN)
+	@echo "==> growing the root image to $(ROOT_SIZE)"
+	qemu-img resize $(GOLDEN) $(ROOT_SIZE)
 	chmod 444 $(GOLDEN)
 	echo "==> golden image ready: $(GOLDEN)"
 
