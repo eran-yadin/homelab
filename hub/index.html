@@ -793,11 +793,47 @@ function urlFor(svc) {
   return `${window.location.protocol}//${localHost()}:${svc.port}`;
 }
 
-function setLinkMode(mode) {
-  if (mode === 'tailscale' && !NET.tailscale_up) {
-    toast('Tailscale is not up on this server', 'error');
-    return;
+// Can THIS device reach the server over Tailscale? The server being up on the
+// tailnet says nothing about the phone or laptop viewing this page: without
+// Tailscale installed and connected here, every Tailscale link fails silently
+// in a new tab. So ask the hub itself through its Tailscale address before
+// switching. An opaque no-cors fetch is enough: any answer means reachable,
+// a network error or a 3 s timeout means not.
+async function tailnetReachable() {
+  const host = NET.tailscale_name || NET.tailscale_ip;
+  if (!host) return false;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 3000);
+  try {
+    await fetch(`${window.location.protocol}//${host}:7070/api/status`,
+                {mode: 'no-cors', cache: 'no-store', signal: ctl.signal});
+    return true;
+  } catch (e) {
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+// User-initiated switch: checks first, then applies.
+async function setLinkMode(mode) {
+  if (mode === 'tailscale') {
+    if (!NET.tailscale_up) {
+      toast('Tailscale is not running on the server', 'error');
+      return;
+    }
+    if (!viewingViaTailscale() && !(await tailnetReachable())) {
+      toast('This device cannot reach the server over Tailscale. Is Tailscale installed and connected on this device?', 'error');
+      applyLinkMode('local');
+      return;
+    }
+  }
+  applyLinkMode(mode);
+}
+
+// Applies a mode without checks; the refresh loop uses this so it does not
+// probe the tailnet every 30 seconds.
+function applyLinkMode(mode) {
   linkMode = mode;
   localStorage.setItem('hub.linkMode', mode);
   document.getElementById('mode-local').classList.toggle('active', mode === 'local');
@@ -1080,8 +1116,8 @@ function updateNet(net) {
     ? `via ${NET.tailscale_name || NET.tailscale_ip}`
     : 'Tailscale is not up on this server';
   document.getElementById('mode-local').title = `via ${localHost()}`;
-  if (linkMode === 'tailscale' && !NET.tailscale_up) setLinkMode('local');
-  else setLinkMode(linkMode);
+  if (linkMode === 'tailscale' && !NET.tailscale_up) applyLinkMode('local');
+  else applyLinkMode(linkMode);
 }
 
 /* -------------------------------------------------------------- statuses */
