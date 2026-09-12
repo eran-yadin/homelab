@@ -52,6 +52,63 @@ over 200 MB.
 branch; `--to <tag>` pins or rolls back. `deploy` writes `VERSION`, shown by
 `homelab version` and in the hub. First tag: `v1.0.0`.
 
+## Immich (2026-09-12)
+
+Added as `apps/immich`: app.conf + files/compose.yml + files/env.template,
+no scripts, kind=compose. Upstream's release compose with named volumes,
+explicit environment, and the version pinned in env.template (v3.2.0).
+CPU only; hardware acceleration (openvino ML, quicksync transcoding via
+/dev/dri) is a later step, as is a `download.sh` override like jellyfin's.
+
+## Unified search ("search everything", launcher style)
+
+One box in the hub, or a keyboard shortcut, that fans a query out to every
+installed app in parallel and shows results grouped by source; clicking a
+result opens it in that app. Not started. The plan:
+
+**Shape**
+
+- `GET /api/search?q=...` in the hub. The hub holds the API tokens, calls
+  each app server-side in parallel with a per-app timeout (~3 s), and
+  streams results as they arrive (SSE or chunked JSON) so one slow app
+  never holds the list.
+- One adapter per app, ~20 lines each: build the query URL, map the
+  response to `{title, snippet, url, thumb, source}`. Adapters live in
+  `apps/<name>/search.py` (or a `search=` block in app.conf naming a
+  built-in adapter), so a new app joins by adding a file, like everything
+  else in the catalog.
+- Tokens in `/var/lib/homelab-hub/search/<app>.token`, 0600, hub user
+  only. Never in the page. A settings section in the hub to paste them.
+- The hub page: a search field (the app-filter search box already exists;
+  reuse its position), `/` to focus, results grouped by app with the
+  app's icon, arrow keys to move, Enter to open.
+
+**Sources, in the order to build them**
+
+1. **transcribe** - our own Flask app; already has a search page. Easiest.
+2. **paperless** - `GET /api/documents/?query=` with a token; full text.
+   Where the real data is.
+3. **immich** - `POST /api/search/smart` (`{"query": ...}`) with an API
+   key; also `/api/search/metadata`. The one that makes it feel magical.
+4. **jellyfin** - `/Items?searchTerm=` with an API key.
+5. **navidrome** - Subsonic `search3`.
+6. **home-assistant** - entities/states, a different kind of result; last.
+7. **ollama** - not a source, a layer: rewrite a vague query, or answer
+   from the top results. Only after the plain version is useful.
+
+Deliberately out: **vaultwarden** (encrypted client-side; the server must
+not search it), caddy, tailscale, adguard, docker, cockpit, uptime-kuma.
+
+**Steps**
+
+- [ ] hub: `/api/search` with parallel fan-out, timeout, streaming; adapter loader
+- [ ] hub: search UI, keyboard driven; settings page for tokens
+- [ ] adapter: transcribe, paperless (test against the real 200+ documents)
+- [ ] adapter: immich (after Immich is installed and has photos)
+- [ ] adapter: jellyfin, navidrome (when installed)
+- [ ] ollama layer, optional
+- [ ] docs: how to add an adapter, in `.claude/skills/homelab-app/SKILL.md`
+
 **Still to do:**
 
 - [ ] Delete `~/testenv-leftover-from-opt/` on the NUC (44 GB) if not needed.

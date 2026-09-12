@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## Unreleased
+
+- immich app: photos and videos from your phone, four containers, named volumes, pinned v3.2.0
+- tasks.md: the unified-search plan
+
 ## v1.0.1 - 2026-09-12
 
 - `update self --to` accepts a commit hash or branch, not only a tag, to try a change on the box before tagging
