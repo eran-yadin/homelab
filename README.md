@@ -40,10 +40,28 @@ reboot|poweroff`, replacing the previous `systemctl start *` wildcard, which
 was root-equivalent: `systemctl start` accepts a path to any unit file,
 including one the caller just wrote.
 
-To ship a change to the server:
+To ship a change to the server, push it to GitHub and let the deployed engine
+update itself:
+
+    ssh nucserver 'sudo -n /opt/homelab/homelab update self --apply'
+
+`update self` fetches `~/homelab` (a git clone on the NUC), compares origin
+with what is deployed, backs up `/opt/homelab` and `/opt/homelab-hub` to
+`~/backups/homelab-self-<timestamp>/`, pulls, deploys, restarts the hub, and
+smoke-tests it: the hub answers on :7070, `status --json` parses, and every app
+that was running still is. If that fails it redeploys the backup. Without
+`--apply` it only fetches and reports. Exit 2 means nothing was new.
+
+One-time setup on the NUC: `git clone https://github.com/eran-yadin/homelab.git ~/homelab`.
+
+To deploy an uncommitted local tree instead (the old way):
 
     tar czf - --exclude=.git . | ssh nucserver 'rm -rf ~/homelab && mkdir -p ~/homelab && tar xzf - -C ~/homelab'
     ssh nucserver 'sudo -n /opt/homelab/homelab deploy --from ~/homelab --apply'
+
+Do not do that from a Windows checkout: git there turns the symlinks under
+`apps/hub/files/` into one-line text files, and deploying them replaces the
+hub's `server.py` with a path.
 
 ### Deliberately left alone
 
