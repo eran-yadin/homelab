@@ -5,33 +5,37 @@ fresh box, and manage them from one hub — with a sterile VM to test all of it
 before anything touches the real machine.
 
 Target hardware: `nucserver`, an Intel i3-7100U / 16 GB / single 500 GB SSD
-running Debian 13, currently hosting paperless-ngx, navidrome, a transcription
-service, netmon, and a small status hub.
+running Debian 13, currently hosting paperless-ngx, Immich, a transcription
+service, AMP, Cockpit, Feishin, caddy and the hub.
 
 ## Status
 
 Running on **nucserver** (10.0.0.5) since 2026-08-30.
 
 - [x] **app lifecycle contract** + catalog — see [docs/CONTRACT.md](docs/CONTRACT.md)
-- [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore / migrate / deploy
+- [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore / migrate / deploy / update self / version
 - [x] **`homelab setup`** — pick apps from the store on a new machine, dependencies resolved for you
 - [x] inherited implementations for `kind=compose`, `kind=systemd`, `kind=container`
-- [x] **20 apps**, most of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
-- [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle, and a [/docs](hub/docs.html) page
+- [x] **22 apps**, most of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
+- [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle, an **Update** button with a live progress page, the deployed version, and a [/docs](hub/docs.html) page
+- [x] **releases** — git tags; `homelab update self` installs the newest tag, backs up first, smoke-tests, rolls back on failure. See [CHANGELOG.md](CHANGELOG.md)
 - [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
 - [x] `tests/conformance.sh` — drives every app through its whole lifecycle
 - [x] **backup / restore / `migrate`** — verified end to end against the live paperless data
 - [x] adopting the services already running on nucserver (AMP, Cockpit, Feishin)
 - [x] **deployed to nucserver** — hub on :7070, caddy fronting :80, nginx retired
+- [x] **Immich** installed on nucserver (v1.1.0)
 - [ ] taking paperless itself into the catalog (see below)
+- [ ] unified search across all apps, HTTPS on the LAN — planned in [tasks.md](tasks.md)
 
 ## What is deployed
 
 | | |
 |---|---|
 | hub | `:7070`, and `http://10.0.0.5/` through caddy |
+| immich | `:2283` — four containers, data in `immich_library` / `immich_pgdata` |
 | caddy | `:80` / `:443`, host networking, routes generated from the catalog into `/etc/caddy/sites` |
-| routes | `hub.nuc` `paperless.nuc` `amp.nuc` `cockpit.nuc` `feishin.nuc` — they need DNS (AdGuard, the router, or a hosts file) |
+| routes | `hub.nuc` `paperless.nuc` `transcribe.nuc` `amp.nuc` `cockpit.nuc` `feishin.nuc` — they need DNS (AdGuard, the router, or a hosts file); rerun `homelab download caddy --apply` after installing an app to add its route |
 | adopted | amp (`ampinstmgr`), cockpit (`cockpit.socket`), feishin (a bare `docker run` container) |
 | retired | nginx — disabled, not purged, so the swap reverses with one command |
 
@@ -39,6 +43,8 @@ The hub's sudoers rule is scoped to `/opt/homelab/homelab` plus `systemctl
 reboot|poweroff`, replacing the previous `systemctl start *` wildcard, which
 was root-equivalent: `systemctl start` accepts a path to any unit file,
 including one the caller just wrote.
+
+## Releases and updating
 
 Releases are git tags. To ship a change to the server: test it in the VM,
 tag it, push, and let the deployed engine update itself:
@@ -100,12 +106,13 @@ its owner.
 
 | category | apps |
 |---|---|
+| ai | ollama |
 | base | docker, hub |
 | gaming | amp *(adopted)* |
 | documents | paperless, transcribe |
 | files | manyfold, syncthing |
 | home | home-assistant |
-| media | feishin *(adopted)*, jellyfin, navidrome, stremio-server |
+| media | feishin *(adopted)*, immich, jellyfin, navidrome, stremio-server |
 | network | adguard, headscale, netmon, tailscale |
 | ops | caddy, uptime-kuma |
 | security | vaultwarden |
@@ -119,7 +126,7 @@ never knows about specific apps: it reads the catalog directory and parses the
 one JSON line that `status` emits. So adding an app later means dropping a
 directory in `apps/`, with no change to the hub or the engine. Most apps ship
 only an `app.conf` and a `compose.yml` and inherit the six verbs from their
-`kind` (`compose` / `systemd` / `binary`).
+`kind` (`compose` / `systemd` / `container`).
 
 Nothing runs for real without `--apply`, and `--apply` refuses on any host
 lacking `/etc/homelab/allow-apply`.
@@ -137,6 +144,17 @@ To develop against the throwaway VM instead:
     make build     # once, downloads the golden image
     make up && make sync
     make ssh
+
+The VM needs QEMU and KVM, which the NUC does not have. When it is not
+available, a compose app can be tried on a laptop with Docker Desktop:
+`docker compose -p test --project-directory apps/<app>/files -f apps/<app>/files/compose.yml --env-file <rendered env> up -d`.
+That is how Immich was verified before v1.1.0.
+
+## Plans and history
+
+[tasks.md](tasks.md) is the running plan: what was done, what is next, and
+the design for bigger items such as unified search. [CHANGELOG.md](CHANGELOG.md)
+has one line per change, grouped by release.
 
 ## Backups taken so far
 

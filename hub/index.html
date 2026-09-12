@@ -763,15 +763,34 @@ function statBar(pct) { return pct > 85 ? 'danger' : pct > 65 ? 'warn' : ''; }
 
 /* ------------------------------------------------------------ link mode */
 
+// Is this page itself being viewed over Tailscale? MagicDNS name, the
+// tailnet's 100.64.0.0/10 range, or whatever the server says its own
+// tailscale address is.
+function viewingViaTailscale() {
+  const h = window.location.hostname;
+  if (/\.ts\.net$/i.test(h)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
+  return (NET.tailscale_ip && h === NET.tailscale_ip) ||
+         (NET.tailscale_name && h.toLowerCase() === String(NET.tailscale_name).toLowerCase());
+}
+
+// The host "Local" links point at. Normally the host you are already viewing
+// the hub on, not the server's LAN IP: if you reached the hub through an ssh
+// tunnel, a port forward, or any other name, a link built from the LAN IP is
+// one your browser cannot follow, so reuse what already worked. The one
+// exception is viewing the hub over Tailscale -- then "current host" IS the
+// Tailscale address, Local and Tailscale would build identical links, and the
+// toggle would appear to do nothing. In that case Local means the LAN IP.
+function localHost() {
+  if (viewingViaTailscale() && NET.local_ip) return NET.local_ip;
+  return window.location.hostname;
+}
+
 function urlFor(svc) {
   const u = svc.urls || {};
   if (linkMode === 'tailscale' && u.tailscale) return u.tailscale;
-  // "Local" means the host you are already viewing the hub on, not the
-  // server's LAN address. If you reached the hub through an ssh tunnel, a
-  // port forward, or any name other than its LAN IP, a link built from that
-  // IP is one your browser cannot follow. Reuse what already worked.
   if (!svc.port) return u.local || null;
-  return `${window.location.protocol}//${window.location.hostname}:${svc.port}`;
+  return `${window.location.protocol}//${localHost()}:${svc.port}`;
 }
 
 function setLinkMode(mode) {
@@ -1060,6 +1079,7 @@ function updateNet(net) {
   tsBtn.title = NET.tailscale_up
     ? `via ${NET.tailscale_name || NET.tailscale_ip}`
     : 'Tailscale is not up on this server';
+  document.getElementById('mode-local').title = `via ${localHost()}`;
   if (linkMode === 'tailscale' && !NET.tailscale_up) setLinkMode('local');
   else setLinkMode(linkMode);
 }

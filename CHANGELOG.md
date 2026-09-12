@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.1.1 - 2026-09-12
+
+- hub: the Local link mode now uses the server's LAN IP when the hub itself is viewed over Tailscale; before, Local and Tailscale built the same link and the toggle looked dead
+- README brought up to date: 22 apps, releases, Update button, Immich, plans
+
 ## v1.1.0 - 2026-09-12
 
 - immich app: photos and videos from your phone, four containers, named volumes, pinned v3.2.0
