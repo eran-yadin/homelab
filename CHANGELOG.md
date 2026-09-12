@@ -2,8 +2,9 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
-## Unreleased
+## v1.0.1 - 2026-09-12
 
+- `update self --to` accepts a commit hash or branch, not only a tag, to try a change on the box before tagging
 - CHANGELOG.md
 
 ## v1.0.0 - 2026-09-12
