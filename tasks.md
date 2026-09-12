@@ -32,9 +32,15 @@ disk check, buildx fix, caddy reload, GPU detect, AMP fixes) was committed as
 a6300f6 first, so nothing was lost. First `update self --apply` ran clean:
 backup, deploy, smoke test all ok; a second run reported up to date, exit 2.
 
+**Update button (2026-09-12):** the hub header has an Update button. It
+opens `/update` in its own tab; that page calls `POST /api/update/start`,
+which runs `homelab update self --apply --detach`. `--detach` hands the work
+to a transient systemd unit (`homelab-self-update`) writing to
+`/var/lib/homelab-hub/update.log`, so the update survives the hub restart it
+causes and closing the tab changes nothing. The page tails the log through
+the restart and ends with a plain-language result.
+
 **Still to do:**
 
-- [ ] Maybe: an "Update homelab" button in the hub. Today the hub's control
-      endpoint only accepts catalog apps, so `self` is rejected with 404.
 - [ ] No timer. Unattended deploy on every push skips the VM gate.
-- [ ] Remove `~/homelab.old` on the NUC once you are happy with the clone.
+- [ ] Versioning: see the discussion in the session of 2026-09-12.

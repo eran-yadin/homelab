@@ -54,6 +54,11 @@ that was running still is. If that fails it redeploys the backup. Without
 
 One-time setup on the NUC: `git clone https://github.com/eran-yadin/homelab.git ~/homelab`.
 
+The hub's **Update** button does the same thing for people without a
+terminal: it opens a tab that starts `update self --detach` and shows the
+server's output as it runs. The update runs as its own systemd unit, so
+closing the tab, or the hub restarting itself halfway, does not stop it.
+
 To deploy an uncommitted local tree instead (the old way):
 
     tar czf - --exclude=.git . | ssh nucserver 'rm -rf ~/homelab && mkdir -p ~/homelab && tar xzf - -C ~/homelab'
