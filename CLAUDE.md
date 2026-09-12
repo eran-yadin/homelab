@@ -14,9 +14,12 @@ i3-7100U, 4 threads, 16 GB, single 500 GB SSD).
    `run`, `run_sh`, `run_write`. That is the entire dry-run mechanism — an app
    cannot forget to honour it.
 4. **`sudo` on the NUC needs a password**, which an agent cannot supply. Only
-   `/opt/homelab/homelab` is passwordless there. To ship code, push to GitHub,
-   then `sudo -n /opt/homelab/homelab update self --apply` (fetch, back up,
-   deploy, smoke-test, roll back on failure). `deploy --from ~/homelab --apply`
+   `/opt/homelab/homelab` is passwordless there. To ship code: tag a release
+   (`git tag -a vX.Y.Z`), push main and the tag, then
+   `sudo -n /opt/homelab/homelab update self --apply` (installs the newest
+   tag; backs up, deploys, smoke-tests, rolls back on failure). A push to
+   main alone changes nothing on the NUC. `--channel main` follows the
+   branch, `--to vX.Y.Z` pins or goes back, `deploy --from ~/homelab --apply`
    deploys an uncommitted tree.
 5. **Read-only queries must not use sudo.** `systemctl cat/is-active/is-enabled/
    show` and `ss` all work unprivileged. Using sudo makes them fail on any host

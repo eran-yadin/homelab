@@ -40,17 +40,27 @@ reboot|poweroff`, replacing the previous `systemctl start *` wildcard, which
 was root-equivalent: `systemctl start` accepts a path to any unit file,
 including one the caller just wrote.
 
-To ship a change to the server, push it to GitHub and let the deployed engine
-update itself:
+Releases are git tags. To ship a change to the server: test it in the VM,
+tag it, push, and let the deployed engine update itself:
 
+    git tag -a v1.1.0 -m "what changed" && git push origin main v1.1.0
     ssh nucserver 'sudo -n /opt/homelab/homelab update self --apply'
 
-`update self` fetches `~/homelab` (a git clone on the NUC), compares origin
-with what is deployed, backs up `/opt/homelab` and `/opt/homelab-hub` to
-`~/backups/homelab-self-<timestamp>/`, pulls, deploys, restarts the hub, and
-smoke-tests it: the hub answers on :7070, `status --json` parses, and every app
-that was running still is. If that fails it redeploys the backup. Without
+`update self` fetches `~/homelab` (a git clone on the NUC) and installs the
+newest `v*` tag, the **stable** channel. A push to `main` changes nothing on
+the box until it is tagged. It backs up `/opt/homelab` and `/opt/homelab-hub`
+to `~/backups/homelab-self-<timestamp>/`, deploys, restarts the hub, and
+smoke-tests it: the hub answers on :7070, `status --json` parses, and every
+app that was running still is. If that fails it redeploys the backup. Without
 `--apply` it only fetches and reports. Exit 2 means nothing was new.
+
+    homelab update self --channel main --apply   # follow the branch instead
+    homelab update self --to v1.0.0 --apply      # exactly that tag, e.g. to go back
+    homelab version                              # what is deployed here
+
+A channel never moves backwards on its own: if `main` was deployed by hand
+and is ahead of the newest tag, stable reports nothing to do until a newer
+tag exists. `--to` is the explicit way back.
 
 One-time setup on the NUC: `git clone https://github.com/eran-yadin/homelab.git ~/homelab`.
 

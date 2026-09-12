@@ -593,7 +593,10 @@ cmd_update_self() {
     local deployed deployed_name target target_name branch=main
     deployed="$(cat "$dest/.deployed-rev" 2>/dev/null || true)"
     deployed_name="$(cat "$dest/VERSION" 2>/dev/null || true)"
-    [ -n "$deployed_name" ] || deployed_name="$(git_as_owner -C "$src" describe --tags --always "${deployed:-HEAD}" 2>/dev/null || echo unknown)"
+    if [ -z "$deployed" ]; then deployed_name="none"
+    elif [ -z "$deployed_name" ]; then
+        deployed_name="$(git_as_owner -C "$src" describe --tags --always "$deployed" 2>/dev/null || echo unknown)"
+    fi
 
     if [ -n "$TO_TAG" ]; then
         target_name="$TO_TAG"

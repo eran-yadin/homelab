@@ -47,9 +47,14 @@ and the first backups copied all of it. They now live in
 VM disk is not wanted. The backup step skips VM images and refuses anything
 over 200 MB.
 
+**Releases (2026-09-12):** git tags are releases. `update self` defaults to
+`--channel stable`, the newest `v*` tag; `--channel main` follows the
+branch; `--to <tag>` pins or rolls back. `deploy` writes `VERSION`, shown by
+`homelab version` and in the hub. First tag: `v1.0.0`.
+
 **Still to do:**
 
 - [ ] Delete `~/testenv-leftover-from-opt/` on the NUC (44 GB) if not needed.
-- [ ] No timer. Unattended deploy on every push skips the VM gate.
-- [ ] Versioning: VERSION file + git tags, `homelab version`, show it in the
-      hub, CHANGELOG, and let `update self` track tags instead of main.
+- [ ] CHANGELOG, one line per tag, shown on the update page.
+- [ ] GitHub Actions: bash -n, shellcheck, tests/checkjs.py on every push.
+- [ ] No timer. The stable channel makes one safe now, if wanted.
