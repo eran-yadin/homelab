@@ -18,17 +18,115 @@ shift || true
 COMPOSE_FILE="$APP_FILES/compose.yml"
 [ -f "$COMPOSE_FILE" ] || die "$APP_NAME: missing $COMPOSE_FILE"
 
-_dc_args() {
-    DC_ARGS=("${DK[@]}" compose -p "$APP_NAME"
-             --project-directory "$APP_FILES"
-             -f "$COMPOSE_FILE")
-    # A per-host override, written by the app's download.sh when it finds
-    # hardware or conditions the base file cannot express. Compose has no way
-    # to make a `devices:` entry conditional, and a missing device is a hard
-    # start failure, so it has to be decided at install time.
-    if [ -f "$APP_STATE/compose.override.yml" ]; then
-        DC_ARGS+=(-f "$APP_STATE/compose.override.yml")
+# The compose files that make up this app, in the order compose records them in
+# a container's config_files label: the base file, then a per-host override
+# when one exists. The override is written by the app's download.sh when it
+# finds hardware the base file cannot express conditionally (a `devices:` entry
+# for a GPU, say) -- compose has no way to make that conditional, and a missing
+# device is a hard start failure, so it is decided at install time.
+#
+# This is the single source of truth. _dc_args (the files we actually run with)
+# and the start-time drift guard (the files we expect a container to have been
+# built from) both derive from it, so the two cannot silently disagree -- the
+# bug fixed in v1.2.1, where the guard forgot the override, lived exactly in
+# that gap.
+_compose_files() {
+    printf '%s\n' "$COMPOSE_FILE"
+    [ -f "$APP_STATE/compose.override.yml" ] && printf '%s\n' "$APP_STATE/compose.override.yml"
+    return 0
+}
+
+# The same list comma-joined, matching how compose stores config_files.
+_compose_files_csv() { _compose_files | paste -sd, -; }
+
+# The identity of one compose file for the drift guard: where it sits inside
+# the app, plus a hash of what is in it. The absolute path is deliberately not
+# part of it.
+#
+# A container records the paths it was *created* from. Deploy an app from
+# ~/homelab and later manage it from /opt/homelab and those paths differ for
+# byte-identical files; compose is also free to record them in a different
+# order. Either one made the guard below refuse a restart it had no reason to
+# refuse -- the v1.2.1 bug class again, one level up.
+#
+# The app-relative path stays in the key -- files/compose.yml,
+# compose.override.yml -- and that is what keeps the check honest. A genuinely
+# foreign stack still mismatches: paperless's own ~/paperless/docker-compose.yml
+# has no .../apps/paperless/ prefix to strip, so its key keeps the whole path
+# and cannot collide with ours. Reducing this to a bare basename would let any
+# docker-compose.yml anywhere on the host pass. Do not.
+#
+# An unreadable file gets a key that can never match, so the guard refuses --
+# the safe direction. Reading is deliberately unprivileged: a read-only query
+# that needs sudo fails on any host without blanket NOPASSWD, and a failed
+# "what is in this file?" must not read as "it matches".
+_compose_file_key() {
+    local path="$1" rel sum
+    case "$path" in
+        */apps/"$APP_NAME"/*) rel="${path##*/apps/"$APP_NAME"/}" ;;
+        *)                    rel="$path" ;;
+    esac
+    # `|| true`: under set -e -o pipefail an unreadable file would otherwise
+    # abort start with no message before the fallback below is reached.
+    sum="$({ sha256sum <"$path"; } 2>/dev/null | cut -d' ' -f1)" || true
+    [ -n "$sum" ] || sum="unreadable"
+    printf '%s\t%s\n' "$rel" "$sum"
+}
+
+# Identity of a whole file list: the per-file keys, sorted so order cannot
+# matter. Reads one path per line, writes one line.
+_compose_identity() {
+    local f out
+    # `|| [ -n "$f" ]` is load-bearing: read returns non-zero on a final line
+    # with no trailing newline, and the label we parse has exactly that shape.
+    # Without it the last -- often only -- file is silently dropped and every
+    # comparison fails.
+    out="$(while IFS= read -r f || [ -n "$f" ]; do
+        if [ -n "$f" ]; then _compose_file_key "$f"; fi
+    done | LC_ALL=C sort | paste -sd' ' -)"
+    printf '%s\n' "$out"
+}
+
+# A per-host override is decided at install time, from the hardware present
+# then (see _compose_files). It can stop fitting later: the GPU is pulled, a
+# docker reinstall drops the NVIDIA container toolkit, a device node is gone
+# after a driver change, or the state dir came from another machine. Compose
+# does not say that plainly -- it fails inside `up` with "error gathering
+# device information" or "could not select device driver".
+#
+# So check what the override REQUIRES before handing it to compose, and stop
+# hard on a miss: compose would fail on it anyway, just less legibly. Optional
+# hardware is not checked here. The app's download.sh already says what it
+# found at install time, and saying it again on every start would be a nag.
+_override_fits_host() {
+    local ov="$APP_STATE/compose.override.yml" dev m
+    local -a missing=()
+    [ -f "$ov" ] || return 0
+    [ -r "$ov" ] || return 0
+    for dev in $(sed -n "s|^[[:space:]]*-[[:space:]]*[\"']\{0,1\}\(/dev/[^:\"' ]*\).*|\1|p" "$ov"); do
+        if [ ! -e "$dev" ]; then missing+=("device $dev, which is not present on this host"); fi
+    done
+    if grep -qE "^[[:space:]]*(-[[:space:]]*)?(driver|runtime):[[:space:]]*[\"']?nvidia" "$ov"; then
+        if [ "${#DK[@]}" -gt 0 ] \
+           && ! "${DK[@]}" info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+            missing+=("an NVIDIA GPU, but docker has no nvidia runtime here (container toolkit missing)")
+        fi
     fi
+    if [ "${#missing[@]}" -eq 0 ]; then return 0; fi
+    err "$APP_NAME: its per-host override does not fit this host."
+    err "    $ov asks for:"
+    for m in "${missing[@]}"; do err "        $m"; done
+    err "    It was generated for hardware this host no longer has, or on another"
+    err "    machine. Starting would fail inside docker. Regenerate it for this"
+    err "    host, then start:"
+    err "        homelab download $APP_NAME --apply && homelab start $APP_NAME --apply"
+    exit 1
+}
+
+_dc_args() {
+    DC_ARGS=("${DK[@]}" compose -p "$APP_NAME" --project-directory "$APP_FILES")
+    local f
+    while IFS= read -r f; do DC_ARGS+=(-f "$f"); done < <(_compose_files)
     if [ -f "$APP_STATE/.env" ]; then DC_ARGS+=(--env-file "$APP_STATE/.env"); fi
 }
 
@@ -202,13 +300,17 @@ start)
     # compare it.
     existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
         --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
-    expected_cfg="$COMPOSE_FILE"
-    [ -f "$APP_STATE/compose.override.yml" ] && expected_cfg="$COMPOSE_FILE,$APP_STATE/compose.override.yml"
-    if [ -n "$existing_cfg" ] && [ "$existing_cfg" != "$expected_cfg" ]; then
+    expected_cfg="$(_compose_files_csv)"
+    # Compare on identity, not on the recorded path string: same files under a
+    # different engine root, or in a different order, are still our files. See
+    # _compose_file_key.
+    existing_id="$(printf '%s\n' "$existing_cfg" | tr ',' '\n' | _compose_identity)"
+    expected_id="$(_compose_files | _compose_identity)"
+    if [ -n "$existing_cfg" ] && [ "$existing_id" != "$expected_id" ]; then
         err "$APP_NAME already has containers on this host, but they were created"
         err "    from a different compose file:"
         err "        theirs: $existing_cfg"
-        err "        ours:   $COMPOSE_FILE"
+        err "        ours:   $expected_cfg"
         err "    Starting would recreate them from ours -- new environment, new"
         err "    generated secrets, possibly different volumes. Refusing."
         err ""
@@ -225,6 +327,7 @@ start)
         ok "$APP_NAME: already running ($running/$total)"
         exit $EX_NOOP
     fi
+    _override_fits_host
     log "$APP_NAME: starting"
     dc up -d
     ok "$APP_NAME: started"
@@ -263,6 +366,10 @@ update)
         ok "$APP_NAME: images updated (app is stopped, leaving it stopped)"
         exit 0
     fi
+
+    # Refuse before the backup and the prompt, not after: asking someone to
+    # confirm an update that then cannot start is worse than either alone.
+    _override_fits_host
 
     # Pulling changed nothing that runs. Before recreating, say what the
     # jump is -- and for an app that holds data, back up and ask. Floating
