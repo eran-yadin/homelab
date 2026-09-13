@@ -141,3 +141,45 @@ not search it), caddy, tailscale, adguard, docker, cockpit, uptime-kuma.
 - [ ] CHANGELOG, one line per tag, shown on the update page.
 - [ ] GitHub Actions: bash -n, shellcheck, tests/checkjs.py on every push.
 - [ ] No timer. The stable channel makes one safe now, if wanted.
+
+## Hamachi for friends (game servers) - later
+
+Why: friends need to reach game servers (Factorio via AMP, UDP 34197)
+without port forwarding or a reverse proxy; caddy cannot proxy UDP anyway.
+**Tailscale stays for me and family only** - friends do not join it.
+
+Already on the NUC (checked 2026-09-13), just not in the catalog, so this
+is an **adopt**, like amp and cockpit:
+
+- `logmein-hamachi` 2.1.0.203-1 (deb, a 2019 build), running and enabled
+  through a SysV init script (`/etc/init.d/logmein-hamachi`), `ham0` up
+  as 25.28.0.159. State in `/var/lib/logmein-hamachi` (identity + keys:
+  that is `backup_paths`, or the node gets a new ID).
+- `playit` 0.17.1 (deb) with a `playit.service` (screen-wrapped,
+  User=server_admin), inactive and disabled.
+
+Hamachi's Linux client is CLI only, still "beta", and has not changed since
+2019. The free tier caps a network at 5 members. Every friend installs
+Hamachi. **playit.gg** is the alternative to keep in mind: made for game
+servers, UDP tunnels, no client install for friends, free tier has a few
+tunnels. It is already installed, so trying it costs little.
+
+**Steps**
+
+- [ ] `apps/hamachi`: kind=systemd adopt (`unit:logmein-hamachi.service
+      bin:hamachi`), stateful, `backup_paths="/var/lib/logmein-hamachi"`,
+      no ports. Install path: the vendor .deb from vpn.net/linux.
+- [ ] `status`: parse `hamachi` output for online/offline, nick, and the
+      ham0 address. Note the `hamachi` CLI needs root; read-only status
+      must still not break without sudo (hard rule 5).
+- [ ] Hub UI for Hamachi (there are no per-app pages yet; `/update` is the
+      precedent for a standalone page): show online state, the 25.x
+      address, the networks and who is in them (online/offline); buttons
+      for go-online/offline, create network, set password, approve or
+      evict a member. Every action goes through a `homelab` verb, never a
+      raw `hamachi` call from the hub.
+- [ ] Show "how to join" per game on that page: network name + password,
+      then `25.28.0.159:34197` for Factorio.
+- [ ] Test in the VM first, then adopt on the NUC (it is running there now;
+      adopting must change nothing).
+- [ ] Decide: keep Hamachi, or `apps/playit` instead / as well.
