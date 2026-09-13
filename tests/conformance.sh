@@ -174,6 +174,82 @@ test_override_restart() {
     sudo rm -f "$state/compose.override.yml"
 }
 
+# A container records the ABSOLUTE paths it was created from. The real
+# deployment creates them from ~/homelab (what `deploy --from` ships) and then
+# manages them from /opt/homelab, so those paths never match on the NUC even
+# though the files are byte-identical. Before v1.2.3 the guard compared the
+# recorded path string and refused every restart afterwards.
+#
+# Reproduce it honestly: start the app from here, copy the whole engine to a
+# second root, and drive the SAME app from there. Nothing about the app
+# changed, so the second root must see a no-op, not a refusal.
+test_moved_root_restart() {
+    local app="$1" moved="$HOME/homelab-moved"
+    printf '\n%s=== %s (restart from a second engine root) ===%s\n' "$D" "$app" "$Z"
+
+    verb "$app" download;              expect_ok "moved: download"
+    verb "$app" start;                 expect_ok "moved: start from the original root"
+    sleep 3
+
+    rm -rf "$moved"
+    cp -a "$PWD" "$moved"
+
+    local rc out
+    set +e
+    out="$(cd "$moved" && ./homelab start "$app" --apply 2>&1)"
+    rc=$?
+    set -e
+    case "$rc" in
+        2) pass "moved: start from the second root is a no-op (rc=2)" ;;
+        0) fail "moved: second root recreated the containers instead of no-op (rc=0)" \
+                "$(printf '%s' "$out" | tail -3)" ;;
+        *) fail "moved: second root refused the app it already owns (rc=$rc)" \
+                "$(printf '%s' "$out" | tail -4)" ;;
+    esac
+
+    rm -rf "$moved"
+    printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1 || true
+}
+
+# v1.2.3 LOOSENS the guard above (path no longer counts, content does), so the
+# thing it exists for has to be proven still to work: a stack that is genuinely
+# not ours must still be refused. This is the paperless case -- containers under
+# our project name, created from someone else's compose file. Recreating those
+# would hand a running database new generated secrets.
+test_foreign_stack_refused() {
+    local app="$1" dir="/tmp/foreign-$1" img rc out
+    printf '\n%s=== %s (a foreign stack is still refused) ===%s\n' "$D" "$app" "$Z"
+
+    verb "$app" download;              expect_ok "foreign: download"
+
+    # reuse the app's own image so this needs no extra pull
+    img="$(grep -m1 -E '^\s*image:' "apps/$app/files/compose.yml" | sed 's/.*image:[[:space:]]*//' | tr -d '"'"'"'"')"
+    if [ -z "$img" ]; then skip "foreign: no image found in $app compose"; return; fi
+
+    mkdir -p "$dir"
+    printf 'services:\n  impostor:\n    image: %s\n    command: ["sleep","600"]\n    entrypoint: [""]\n' "$img" \
+        > "$dir/docker-compose.yml"
+
+    if ! _dk compose -p "$app" -f "$dir/docker-compose.yml" up -d >/dev/null 2>&1; then
+        skip "foreign: could not stage a foreign stack"; rm -rf "$dir"; return
+    fi
+
+    set +e
+    out="$("$HL" start "$app" --apply 2>&1)"
+    rc=$?
+    set -e
+    if [ "$rc" != 0 ] && [ "$rc" != 2 ] \
+       && printf '%s' "$out" | grep -q 'different compose file'; then
+        pass "foreign: refused to recreate a stack it did not create (rc=$rc)"
+    else
+        fail "foreign: did NOT refuse a foreign stack (rc=$rc)" "$(printf '%s' "$out" | tail -3)"
+    fi
+
+    _dk compose -p "$app" -f "$dir/docker-compose.yml" down -v >/dev/null 2>&1 || true
+    rm -rf "$dir"
+    printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1 || true
+}
+
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
     APPS="$(for d in apps/*/; do [ -f "$d/app.conf" ] && basename "$d"; done)"
@@ -186,6 +262,18 @@ for a in $APPS; do test_app "$a"; done
 for pair in $OVERRIDE_APPS; do
     a="${pair%%:*}"
     case " $APPS " in *" $a "*) test_override_restart "$a" "${pair#*:}" ;; esac
+done
+
+# and through the second-engine-root guard (v1.2.3)
+for pair in $OVERRIDE_APPS; do
+    a="${pair%%:*}"
+    case " $APPS " in *" $a "*) test_moved_root_restart "$a" ;; esac
+done
+
+# ...and that loosening it did not stop it refusing a stack that is not ours
+for pair in $OVERRIDE_APPS; do
+    a="${pair%%:*}"
+    case " $APPS " in *" $a "*) test_foreign_stack_refused "$a" ;; esac
 done
 
 printf '\n%s---%s\n' "$D" "$Z"
