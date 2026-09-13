@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.1 - 2026-09-13
+
+- fix: compose apps with a per-host `compose.override.yml` could not be restarted. The "different compose file" guard compared the container's recorded config-files against the base `compose.yml` alone, ignoring the override the engine itself appends, so the check always tripped. Hit stremio-server on any host with `/dev/dri`. The guard now expects base+override.
+
 ## v1.2.0 - 2026-09-12
 
 - `update <app>` for compose apps shows the version jump per service before recreating anything
