@@ -18,17 +18,31 @@ shift || true
 COMPOSE_FILE="$APP_FILES/compose.yml"
 [ -f "$COMPOSE_FILE" ] || die "$APP_NAME: missing $COMPOSE_FILE"
 
+# The compose files that make up this app, in the order compose records them in
+# a container's config_files label: the base file, then a per-host override
+# when one exists. The override is written by the app's download.sh when it
+# finds hardware the base file cannot express conditionally (a `devices:` entry
+# for a GPU, say) -- compose has no way to make that conditional, and a missing
+# device is a hard start failure, so it is decided at install time.
+#
+# This is the single source of truth. _dc_args (the files we actually run with)
+# and the start-time drift guard (the files we expect a container to have been
+# built from) both derive from it, so the two cannot silently disagree -- the
+# bug fixed in v1.2.1, where the guard forgot the override, lived exactly in
+# that gap.
+_compose_files() {
+    printf '%s\n' "$COMPOSE_FILE"
+    [ -f "$APP_STATE/compose.override.yml" ] && printf '%s\n' "$APP_STATE/compose.override.yml"
+    return 0
+}
+
+# The same list comma-joined, matching how compose stores config_files.
+_compose_files_csv() { _compose_files | paste -sd, -; }
+
 _dc_args() {
-    DC_ARGS=("${DK[@]}" compose -p "$APP_NAME"
-             --project-directory "$APP_FILES"
-             -f "$COMPOSE_FILE")
-    # A per-host override, written by the app's download.sh when it finds
-    # hardware or conditions the base file cannot express. Compose has no way
-    # to make a `devices:` entry conditional, and a missing device is a hard
-    # start failure, so it has to be decided at install time.
-    if [ -f "$APP_STATE/compose.override.yml" ]; then
-        DC_ARGS+=(-f "$APP_STATE/compose.override.yml")
-    fi
+    DC_ARGS=("${DK[@]}" compose -p "$APP_NAME" --project-directory "$APP_FILES")
+    local f
+    while IFS= read -r f; do DC_ARGS+=(-f "$f"); done < <(_compose_files)
     if [ -f "$APP_STATE/.env" ]; then DC_ARGS+=(--env-file "$APP_STATE/.env"); fi
 }
 
@@ -202,13 +216,12 @@ start)
     # compare it.
     existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
         --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
-    expected_cfg="$COMPOSE_FILE"
-    [ -f "$APP_STATE/compose.override.yml" ] && expected_cfg="$COMPOSE_FILE,$APP_STATE/compose.override.yml"
+    expected_cfg="$(_compose_files_csv)"
     if [ -n "$existing_cfg" ] && [ "$existing_cfg" != "$expected_cfg" ]; then
         err "$APP_NAME already has containers on this host, but they were created"
         err "    from a different compose file:"
         err "        theirs: $existing_cfg"
-        err "        ours:   $COMPOSE_FILE"
+        err "        ours:   $expected_cfg"
         err "    Starting would recreate them from ours -- new environment, new"
         err "    generated secrets, possibly different volumes. Refusing."
         err ""
