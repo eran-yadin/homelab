@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.2 - 2026-09-13
+
+- `_dc_args` and the start-time guard now derive the compose file list from one helper (`_compose_files`), so they can't disagree the way they did in v1.2.1; the "different compose file" refusal now prints the full expected list
+- conformance exercises the per-host override path (injects a harmless override, asserts restart is a no-op) — the gap that let the v1.2.1 bug ship
+
 ## v1.2.1 - 2026-09-13
 
 - fix: compose apps with a per-host `compose.override.yml` could not be restarted. The "different compose file" guard compared the container's recorded config-files against the base `compose.yml` alone, ignoring the override the engine itself appends, so the check always tripped. Hit stremio-server on any host with `/dev/dri`. The guard now expects base+override.

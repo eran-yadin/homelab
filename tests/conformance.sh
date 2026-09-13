@@ -134,6 +134,46 @@ test_app() {
     verb "$app" delete;                expect_noop "delete"
 }
 
+# --- per-host override regression -------------------------------------------
+# Reproduces the v1.2.1 bug (now guarded by the single-source-of-truth refactor
+# in lib/kinds/compose.sh). The test VM has no /dev/dri, so no app generates a
+# compose.override.yml here -- which is exactly why the original suite never
+# caught it. Synthesize a harmless override (bind /dev/null, present on every
+# host) to recreate the base+override shape, then assert the app starts AND
+# that starting it again is a no-op, not the false "different compose file"
+# refusal.
+OVERRIDE_APPS="stremio-server:stremio-server jellyfin:jellyfin"   # app:service
+
+_dk() { if docker info >/dev/null 2>&1; then docker "$@"; else sudo docker "$@"; fi; }
+
+test_override_restart() {
+    local app="$1" svc="$2" state="/var/lib/homelab/apps/$1"
+    printf '\n%s=== %s (override restart guard) ===%s\n' "$D" "$app" "$Z"
+
+    verb "$app" download;              expect_ok "override: download"
+
+    sudo mkdir -p "$state"
+    printf 'services:\n  %s:\n    devices:\n      - /dev/null:/dev/null\n' "$svc" \
+        | sudo tee "$state/compose.override.yml" >/dev/null
+
+    verb "$app" start;                 expect_ok "override: start with override present"
+    sleep 3
+
+    local cf
+    cf="$(_dk ps -a --filter "label=com.docker.compose.project=$app" \
+        --format '{{.Label "com.docker.compose.project.config_files"}}' | head -1)"
+    if printf '%s' "$cf" | grep -q 'compose\.override\.yml'; then
+        pass "override: container built from base+override"
+    else
+        fail "override: container did not include the override" "$cf"
+    fi
+
+    verb "$app" start;                 expect_noop "override: start again (the v1.2.1 regression)"
+
+    printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1 || true
+    sudo rm -f "$state/compose.override.yml"
+}
+
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
     APPS="$(for d in apps/*/; do [ -f "$d/app.conf" ] && basename "$d"; done)"
@@ -141,6 +181,12 @@ fi
 
 printf '%shomelab contract conformance%s\n' "$D" "$Z"
 for a in $APPS; do test_app "$a"; done
+
+# override-capable apps present in this run also go through the override guard
+for pair in $OVERRIDE_APPS; do
+    a="${pair%%:*}"
+    case " $APPS " in *" $a "*) test_override_restart "$a" "${pair#*:}" ;; esac
+done
 
 printf '\n%s---%s\n' "$D" "$Z"
 printf 'passed %s%d%s   failed %s%d%s   skipped %d\n' "$G" "$PASS" "$Z" "$R" "$FAIL" "$Z" "$SKIP"
