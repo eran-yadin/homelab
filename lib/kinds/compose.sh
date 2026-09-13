@@ -202,7 +202,9 @@ start)
     # compare it.
     existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
         --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
-    if [ -n "$existing_cfg" ] && [ "$existing_cfg" != "$COMPOSE_FILE" ]; then
+    expected_cfg="$COMPOSE_FILE"
+    [ -f "$APP_STATE/compose.override.yml" ] && expected_cfg="$COMPOSE_FILE,$APP_STATE/compose.override.yml"
+    if [ -n "$existing_cfg" ] && [ "$existing_cfg" != "$expected_cfg" ]; then
         err "$APP_NAME already has containers on this host, but they were created"
         err "    from a different compose file:"
         err "        theirs: $existing_cfg"
