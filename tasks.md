@@ -160,11 +160,10 @@ is an **adopt**, like amp and cockpit:
 
 Hamachi's Linux client is CLI only, still "beta", and has not changed since
 2019. The free tier caps a network at 5 members. Every friend installs
-Hamachi. **playit.gg** is the alternative to keep in mind: made for game
-servers, UDP tunnels, no client install for friends, free tier has a few
-tunnels. It is already installed, so trying it costs little.
+Hamachi. playit.gg (below) is the other half: no client install for
+friends. The two can coexist.
 
-**Steps**
+**Steps (Hamachi)**
 
 - [ ] `apps/hamachi`: kind=systemd adopt (`unit:logmein-hamachi.service
       bin:hamachi`), stateful, `backup_paths="/var/lib/logmein-hamachi"`,
@@ -182,4 +181,45 @@ tunnels. It is already installed, so trying it costs little.
       then `25.28.0.159:34197` for Factorio.
 - [ ] Test in the VM first, then adopt on the NUC (it is running there now;
       adopting must change nothing).
-- [ ] Decide: keep Hamachi, or `apps/playit` instead / as well.
+### playit.gg
+
+A relay made for game servers: the agent dials out to playit.gg, which gives
+each tunnel a public address. Handles UDP, no port forwarding, works behind
+CGNAT, and **friends install nothing** - they type the address into
+Factorio. The trade: the address is public, so the game needs its own
+password. Free tier has bandwidth limits and throttles heavy traffic.
+Tunnels are created and listed on the playit.gg dashboard; the agent has no
+local UI.
+
+Already on the NUC (checked 2026-09-13), not in the catalog:
+
+- `playit` 0.17.1 (deb). The agent is at 1.0.10 upstream; 1.0.10 fixed
+  "permission issues when upgrading from pre 1.0".
+- **Inactive and disabled**; last ran until 2026-04-10.
+- The packaged unit (`/lib/systemd/system/playit.service`) runs
+  `playit --secret_wait --secret_path /etc/playit/playit.toml start`. It is
+  **shadowed** by a hand-made `/etc/systemd/system/playit.service` that
+  wraps the agent in `screen` as server_admin, so the secret lives in
+  `~server_admin/.config/playit_gg/playit.toml`, mode 664.
+- `/etc/playit` exists, is empty, and is mode **777**.
+
+**Steps (playit.gg)**
+
+- [ ] Before anything starts it: check the playit.gg dashboard for tunnels
+      left from April. Starting the agent republishes every tunnel on the
+      account, to the internet.
+- [ ] `apps/playit`: kind=systemd adopt (`unit:playit.service bin:playit`),
+      stateful, `backup_paths="/etc/playit"`, no local ports.
+- [ ] Move to the packaged unit: secret into `/etc/playit/playit.toml`
+      (root, 0600), `/etc/playit` to 0700, drop the screen override. VM
+      first, every step through `run`/`run_write` behind `--apply`.
+- [ ] Upgrade 0.17.1 to 1.0.x (playit's apt repo); confirm 1.0 keeps
+      `--secret_path` and the unit before relying on either.
+- [ ] Factorio: a UDP tunnel to `127.0.0.1:34197` on the dashboard, and a
+      game password in AMP. Never tunnel the AMP panel, cockpit or the hub.
+- [ ] Hub UI: agent online/offline, the claim link on first setup (the
+      agent prints one), a link to the dashboard, and the tunnel address
+      friends type in, if the agent or API exposes it (unverified).
+- [ ] Decide per game: Hamachi (private network, 5-member cap, friends
+      install a client) or playit (public address, game password,
+      nothing to install). Both on one hub page: "friends access".
