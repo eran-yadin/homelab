@@ -26,7 +26,7 @@ Running on **nucserver** (10.0.0.5) since 2026-08-30.
 - [x] **deployed to nucserver** — hub on :7070, caddy fronting :80, nginx retired
 - [x] **Immich** installed on nucserver (v1.1.0)
 - [ ] taking paperless itself into the catalog (see below)
-- [ ] unified search across all apps, HTTPS on the LAN — planned in [tasks.md](tasks.md)
+- [ ] unified search across all apps, HTTPS on the LAN
 
 ## What is deployed
 
@@ -152,9 +152,9 @@ That is how Immich was verified before v1.1.0.
 
 ## Plans and history
 
-[tasks.md](tasks.md) is the running plan: what was done, what is next, and
-the design for bigger items such as unified search. [CHANGELOG.md](CHANGELOG.md)
-has one line per change, grouped by release.
+The task list and plans for bigger items such as unified search are kept
+outside the repo, in the owner's notes. [CHANGELOG.md](CHANGELOG.md) has one
+line per change, grouped by release.
 
 ## Backups taken so far
 
