@@ -262,6 +262,13 @@ install_apps() {   # install_apps <app>...
     local a
     for a in $order; do
         app_load "$a"
+        # RAM is a warning, not a stop. needs_ram_mb is a hint about comfort,
+        # and most of these do run -- slowly -- on less. Refusing would be a
+        # nag; saying nothing leaves "why is everything swapping" for later.
+        if [ "${DET_RAM_MB:-0}" -gt 0 ] 2>/dev/null && [ "${APP_RAM:-0}" -gt "$DET_RAM_MB" ] 2>/dev/null; then
+            warn "$a suggests ${APP_RAM} MB of RAM; this host has ${DET_RAM_MB} MB in total."
+            warn "    It will install, but expect it to be slow or to push other apps into swap."
+        fi
         [ "${APP_DISK:-0}" -gt 0 ] 2>/dev/null || continue
         local target=/ free
         if [ "$APP_KIND" = compose ] && [ -d /var/lib/docker ]; then

@@ -250,6 +250,84 @@ test_foreign_stack_refused() {
     printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1 || true
 }
 
+# v1.2.4: an override written for hardware the host no longer has must be
+# refused before compose runs, with a message that says how to fix it -- not
+# surface as a device error from inside `docker compose up`. Stage two stale
+# overrides the VM cannot satisfy: a device node that does not exist, and an
+# NVIDIA GPU with no nvidia runtime in docker. Neither may create a container.
+# Then the remedy the message prints has to be true: `download` regenerates an
+# override that fits, and start works.
+test_override_does_not_fit() {
+    local app="$1" svc="$2" state="/var/lib/homelab/apps/$1" n
+    printf '\n%s=== %s (override that does not fit the host) ===%s\n' "$D" "$app" "$Z"
+
+    verb "$app" download;              expect_ok "misfit: download"
+    sudo mkdir -p "$state"
+
+    printf 'services:\n  %s:\n    devices:\n      - /dev/homelab-no-such-device:/dev/null\n' "$svc" \
+        | sudo tee "$state/compose.override.yml" >/dev/null
+    verb "$app" start
+    if [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'does not fit this host'; then
+        pass "misfit: missing device refused before compose (rc=1)"
+    else
+        fail "misfit: missing device not refused cleanly (rc=$RC)" "$(printf '%s' "$OUT" | tail -3)"
+    fi
+
+    if _dk info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+        skip "misfit: this host has an nvidia runtime, so a GPU misfit cannot be staged"
+    else
+        printf 'services:\n  %s:\n    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n' "$svc" \
+            | sudo tee "$state/compose.override.yml" >/dev/null
+        verb "$app" start
+        if [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'nvidia runtime'; then
+            pass "misfit: NVIDIA override without the runtime refused (rc=1)"
+        else
+            fail "misfit: NVIDIA override without the runtime not refused cleanly (rc=$RC)" "$(printf '%s' "$OUT" | tail -3)"
+        fi
+    fi
+
+    n="$(_dk ps -aq --filter "label=com.docker.compose.project=$app" | grep -c . || true)"
+    if [ "$n" = 0 ]; then pass "misfit: no containers were created"
+    else fail "misfit: $n container(s) created despite the refusal"; fi
+
+    verb "$app" download;              expect_ok "misfit: download regenerates the override"
+    verb "$app" start;                 expect_ok "misfit: start after regenerating"
+
+    printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply >/dev/null 2>&1 || true
+    sudo rm -f "$state/compose.override.yml"
+}
+
+# v1.2.4: install warns -- and only warns -- when an app suggests more RAM than
+# the host has. A dry run of the hungriest app whose disk need still fits, so
+# the disk stop cannot be mistaken for a RAM block, and nothing changes.
+test_install_ram_warning() {
+    printf '\n%s=== install preflight: RAM is a warning, not a stop ===%s\n' "$D" "$Z"
+    local host_mb free_mb best="" best_mb=0 a mb disk rc out
+    host_mb="$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo)"
+    free_mb="$(df -Pm /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}')"
+    [ -n "$free_mb" ] || free_mb="$(df -Pm / | awk 'NR==2{print $4}')"
+    for a in $(for d in apps/*/; do [ -f "$d/app.conf" ] && basename "$d"; done); do
+        mb="$(sed -n 's/^needs_ram_mb=\([0-9]*\).*/\1/p' "apps/$a/app.conf")"
+        disk="$(sed -n 's/^needs_disk_mb=\([0-9]*\).*/\1/p' "apps/$a/app.conf")"
+        if [ "${disk:-0}" -gt "$free_mb" ]; then continue; fi
+        if [ "${mb:-0}" -gt "$best_mb" ]; then best="$a"; best_mb="$mb"; fi
+    done
+    if [ -z "$best" ] || [ "$best_mb" -le "$host_mb" ]; then
+        skip "ram: no app asks for more than this host's ${host_mb} MB"; return
+    fi
+    set +e
+    out="$("$HL" install "$best" 2>&1)"
+    rc=$?
+    set -e
+    if printf '%s' "$out" | grep -q "suggests ${best_mb} MB of RAM"; then
+        pass "ram: $best (${best_mb} MB) warned on a ${host_mb} MB host"
+    else
+        fail "ram: no RAM warning for $best (${best_mb} MB) on a ${host_mb} MB host" "$(printf '%s' "$out" | head -5)"
+    fi
+    if [ "$rc" = 0 ]; then pass "ram: the warning did not block the install (rc=0)"
+    else fail "ram: install blocked or failed (rc=$rc)" "$(printf '%s' "$out" | tail -3)"; fi
+}
+
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
     APPS="$(for d in apps/*/; do [ -f "$d/app.conf" ] && basename "$d"; done)"
@@ -275,6 +353,15 @@ for pair in $OVERRIDE_APPS; do
     a="${pair%%:*}"
     case " $APPS " in *" $a "*) test_foreign_stack_refused "$a" ;; esac
 done
+
+# ...and an override that no longer fits the host is refused before compose (v1.2.4)
+for pair in $OVERRIDE_APPS; do
+    a="${pair%%:*}"
+    case " $APPS " in *" $a "*) test_override_does_not_fit "$a" "${pair#*:}" ;; esac
+done
+
+# install preflight, once per run: read-only, a dry run
+test_install_ram_warning
 
 printf '\n%s---%s\n' "$D" "$Z"
 printf 'passed %s%d%s   failed %s%d%s   skipped %d\n' "$G" "$PASS" "$Z" "$R" "$FAIL" "$Z" "$SKIP"

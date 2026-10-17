@@ -2,6 +2,12 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.4 - 2026-09-13
+
+- compose apps: before `start`, and before `update` recreates anything, a per-host `compose.override.yml` is checked against the host -- every `/dev` path it maps must exist, and an `nvidia` driver needs docker's nvidia runtime. A miss refuses with `homelab download <app> --apply` as the fix, instead of a device error from inside `docker compose up`. Optional hardware is not re-checked; download.sh already reports it
+- `install` warns (does not stop) when an app's `needs_ram_mb` is more than the host's total RAM; the disk check stays a stop
+- conformance: stage a missing-device override and an NVIDIA override without the runtime (both refused, no container created, `download` then fixes it), and a dry-run install that must warn about RAM yet exit 0
+
 ## v1.2.3 - 2026-09-13
 
 - fix: the "different compose file" guard compared the absolute paths a container recorded as a string, so an app created from `~/homelab` and managed from `/opt/homelab` (what `deploy --from` then `update self` does), or with its files recorded in another order, was refused every restart. It now compares each file's app-relative path plus a sha256 of its contents, order-independent. A genuinely foreign stack still mismatches: its path has no `apps/<app>/` prefix to strip, and a file at our path with different contents fails on the hash

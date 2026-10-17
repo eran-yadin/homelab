@@ -110,7 +110,7 @@ the hub.
 | `requires` | — | other apps, installed first (depth-first) |
 | `stateful` | `0` | has data worth backing up; makes `--purge` prompt |
 | `detect` | — | space-separated presence probes (below) |
-| `needs_ram_mb` / `needs_disk_mb` | `0` | resource hints |
+| `needs_ram_mb` / `needs_disk_mb` | `0` | checked by `install` before anything changes: more RAM than the host has is a warning, more disk than is free is a stop |
 | `unit` | `<name>.service` | kind=systemd: the unit |
 | `backup_paths` | — | kind=systemd: paths to archive |
 | `purge_paths` | — | kind=systemd: paths removed by `--purge` |
@@ -180,6 +180,17 @@ These failures are worth catching early because of how they present otherwise.
 "Address already in use" surfaces from deep inside docker, after the install
 has begun changing things, and never names what is holding the port. Worse, a
 `container_name` collision can silently attach to somebody else's container.
+
+A compose app's per-host `compose.override.yml` gets the same treatment, before
+`start` and before `update` recreates anything. It is written at install time
+for the hardware present then, and can stop fitting: a GPU removed, the NVIDIA
+container toolkit lost in a docker reinstall, a state directory copied from
+another machine. Compose reports that as a device error from inside `up`. The
+engine instead checks every `/dev` path the override maps and, for an `nvidia`
+driver, that docker has the nvidia runtime -- and refuses with the fix:
+`homelab download <app> --apply` regenerates the override for this host.
+Optional hardware is not checked here; the app's `download.sh` already says
+what it found.
 
 ## Safety
 

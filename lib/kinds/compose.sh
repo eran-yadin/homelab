@@ -87,6 +87,42 @@ _compose_identity() {
     printf '%s\n' "$out"
 }
 
+# A per-host override is decided at install time, from the hardware present
+# then (see _compose_files). It can stop fitting later: the GPU is pulled, a
+# docker reinstall drops the NVIDIA container toolkit, a device node is gone
+# after a driver change, or the state dir came from another machine. Compose
+# does not say that plainly -- it fails inside `up` with "error gathering
+# device information" or "could not select device driver".
+#
+# So check what the override REQUIRES before handing it to compose, and stop
+# hard on a miss: compose would fail on it anyway, just less legibly. Optional
+# hardware is not checked here. The app's download.sh already says what it
+# found at install time, and saying it again on every start would be a nag.
+_override_fits_host() {
+    local ov="$APP_STATE/compose.override.yml" dev m
+    local -a missing=()
+    [ -f "$ov" ] || return 0
+    [ -r "$ov" ] || return 0
+    for dev in $(sed -n "s|^[[:space:]]*-[[:space:]]*[\"']\{0,1\}\(/dev/[^:\"' ]*\).*|\1|p" "$ov"); do
+        if [ ! -e "$dev" ]; then missing+=("device $dev, which is not present on this host"); fi
+    done
+    if grep -qE "^[[:space:]]*(-[[:space:]]*)?(driver|runtime):[[:space:]]*[\"']?nvidia" "$ov"; then
+        if [ "${#DK[@]}" -gt 0 ] \
+           && ! "${DK[@]}" info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+            missing+=("an NVIDIA GPU, but docker has no nvidia runtime here (container toolkit missing)")
+        fi
+    fi
+    if [ "${#missing[@]}" -eq 0 ]; then return 0; fi
+    err "$APP_NAME: its per-host override does not fit this host."
+    err "    $ov asks for:"
+    for m in "${missing[@]}"; do err "        $m"; done
+    err "    It was generated for hardware this host no longer has, or on another"
+    err "    machine. Starting would fail inside docker. Regenerate it for this"
+    err "    host, then start:"
+    err "        homelab download $APP_NAME --apply && homelab start $APP_NAME --apply"
+    exit 1
+}
+
 _dc_args() {
     DC_ARGS=("${DK[@]}" compose -p "$APP_NAME" --project-directory "$APP_FILES")
     local f
@@ -291,6 +327,7 @@ start)
         ok "$APP_NAME: already running ($running/$total)"
         exit $EX_NOOP
     fi
+    _override_fits_host
     log "$APP_NAME: starting"
     dc up -d
     ok "$APP_NAME: started"
@@ -329,6 +366,10 @@ update)
         ok "$APP_NAME: images updated (app is stopped, leaving it stopped)"
         exit 0
     fi
+
+    # Refuse before the backup and the prompt, not after: asking someone to
+    # confirm an update that then cannot start is worse than either alone.
+    _override_fits_host
 
     # Pulling changed nothing that runs. Before recreating, say what the
     # jump is -- and for an app that holds data, back up and ask. Floating
