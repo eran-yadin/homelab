@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.3 - 2026-09-13
+
+- fix: the "different compose file" guard compared the absolute paths a container recorded as a string, so an app created from `~/homelab` and managed from `/opt/homelab` (what `deploy --from` then `update self` does), or with its files recorded in another order, was refused every restart. It now compares each file's app-relative path plus a sha256 of its contents, order-independent. A genuinely foreign stack still mismatches: its path has no `apps/<app>/` prefix to strip, and a file at our path with different contents fails on the hash
+- conformance: restart the same app from a second engine root (must be a no-op), and stage a foreign stack under the app's project name (must still be refused) — the second proves the loosening kept the check's teeth
+
 ## v1.2.2 - 2026-09-13
 
 - `_dc_args` and the start-time guard now derive the compose file list from one helper (`_compose_files`), so they can't disagree the way they did in v1.2.1; the "different compose file" refusal now prints the full expected list
