@@ -41,7 +41,11 @@ SYSTEMCTL = shutil.which("systemctl") or "/usr/bin/systemctl"
 
 # Actions the UI is allowed to ask for. Anything else is rejected before it
 # reaches a subprocess.
-APP_ACTIONS = {"start", "stop", "restart", "update", "install"}
+APP_ACTIONS = {"start", "stop", "restart", "update", "install", "delete"}
+# What the hub itself stands on. Removing any of these from the hub would cut
+# off the page doing the removing (or the network it is reached over); do it
+# from a shell, deliberately.
+NOT_REMOVABLE = {"hub", "caddy", "docker", "tailscale"}
 SYSTEM_ACTIONS = {"reboot", "poweroff"}
 
 
@@ -303,6 +307,8 @@ def api_config():
             "port": port,
             "urls": urls_for(port, lip, tsip, tsdns),
             "presence": a.get("presence", "unknown"),
+            "stateful": bool(a.get("stateful")),
+            "removable": not a.get("adopted") and a["app"] not in NOT_REMOVABLE,
         })
     return jsonify(out)
 
@@ -333,9 +339,10 @@ def api_control():
     if action not in APP_ACTIONS:
         return jsonify({"error": f"invalid action: {action}"}), 400
 
-    known = {a["app"] for a in catalog()}
+    known = {a["app"]: a for a in catalog()}
     if app_id not in known:
         return jsonify({"error": f"unknown app: {app_id}"}), 404
+    entry = known[app_id]
 
     # `update` on an app that holds data backs up and then asks. Non-
     # interactive, it stops with exit 3 having changed nothing; the page shows
@@ -344,10 +351,26 @@ def api_control():
     if action == "update" and data.get("confirm"):
         argv.append("--yes")
 
+    # delete keeps the data unless purge is asked for. Purging an app that
+    # holds data makes the engine ask for the app name on stdin; the page
+    # collects it from the person and we hand it through unchanged, so the
+    # engine's own check is the one that decides.
+    stdin = None
+    if action == "delete":
+        if entry.get("adopted") or app_id in NOT_REMOVABLE:
+            return jsonify({"error": f"{app_id} can't be removed from the hub"}), 403
+        if data.get("purge"):
+            argv.append("--purge")
+            if entry.get("stateful"):
+                if data.get("confirm") != app_id:
+                    return jsonify({"error": "type the app name to delete its data"}), 400
+                stdin = app_id + "\n"
+
     # install can take many minutes (image pulls, builds)
     timeout = 1800 if action in ("install", "update") else 120
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                           input=stdin if stdin is not None else "")
         _catalog_cache["at"] = 0          # presence may have changed
         output = (r.stderr + r.stdout).strip()[-3000:]
         if r.returncode == 3:

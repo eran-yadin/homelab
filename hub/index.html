@@ -406,6 +406,9 @@
   .btn-restart { color: var(--amber); border-color: rgba(245,166,35,0.4); }
   .btn-restart:hover:not(:disabled) { background: var(--amber-dim); border-color: var(--amber); }
 
+  .btn-remove { color: var(--muted); border-color: var(--border2); }
+  .btn-remove:hover:not(:disabled) { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+
   .btn-open {
     color: #fff;
     border-color: var(--border2);
@@ -492,7 +495,8 @@
     letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
     padding: 0.45rem 0.8rem; border-radius: 4px; transition: all 0.15s;
   }
-  .danger-btn:hover { background: var(--red); color: #fff; }
+  .danger-btn:hover:not(:disabled) { background: var(--red); color: #fff; }
+  .danger-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .search-wrap { position: relative; display: flex; align-items: center; }
   .search-input {
@@ -725,6 +729,27 @@
     <div class="modal-actions">
       <button class="btn btn-open" onclick="closeUpdate()">Cancel</button>
       <button class="btn btn-install" onclick="doUpdate()">Back up and update</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="remove-modal">
+  <div class="modal-card">
+    <h3>Remove <span id="remove-modal-app"></span>?</h3>
+    <p>Stops it and removes its containers or service. Its data is kept, so
+       installing it again picks up where it left off.</p>
+    <label style="display:flex;gap:0.5rem;align-items:center;margin:0.6rem 0;font-size:0.85rem">
+      <input type="checkbox" id="remove-purge" onchange="syncRemove()">
+      Also delete its data. This cannot be undone.
+    </label>
+    <div id="remove-confirm-wrap" style="display:none">
+      <p style="margin:0.3rem 0">Type <b class="mono" id="remove-modal-name"></b> to confirm:</p>
+      <input class="mono" id="remove-confirm" autocomplete="off" oninput="syncRemove()"
+             style="width:100%;box-sizing:border-box;padding:0.4rem;background:var(--bg3);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-open" onclick="closeRemove()">Cancel</button>
+      <button class="danger-btn" id="remove-go" onclick="doRemove()">Remove</button>
     </div>
   </div>
 </div>
@@ -1168,7 +1193,7 @@ function updateServiceStatuses(statuses) {
 
     const b = a => document.getElementById(`${a}-${id}`);
     if (b('install')) b('install').style.display = installed ? 'none' : '';
-    ['start','stop','restart'].forEach(a => {
+    ['start','stop','restart','delete'].forEach(a => {
       if (b(a)) b(a).style.display = installed ? '' : 'none';
     });
     if (b('start'))   b('start').disabled   = running;
@@ -1184,11 +1209,11 @@ function updateServiceStatuses(statuses) {
 
 /* --------------------------------------------------------------- actions */
 
-async function controlService(id, action, confirm = false) {
+async function controlService(id, action, confirm = false, extra = {}) {
   const verb = {start:'Starting',stop:'Stopping',restart:'Restarting',
-                update:'Updating',install:'Installing'}[action];
+                update:'Updating',install:'Installing',delete:'Removing'}[action];
   toast(`${verb} ${id}…`, 'info');
-  const btns = ['start','stop','restart','install','update']
+  const btns = ['start','stop','restart','install','update','delete']
     .map(a => document.getElementById(`${a}-${id}`));
   btns.forEach(b => b && (b.disabled = true));
   const logEl = document.getElementById(`log-${id}`);
@@ -1197,7 +1222,7 @@ async function controlService(id, action, confirm = false) {
     const res = await fetch(`${API}/api/control`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({service: id, action, confirm})
+      body: JSON.stringify({service: id, action, confirm, ...extra})
     });
     const data = await res.json();
     if (data.needs_confirm) {
@@ -1205,10 +1230,11 @@ async function controlService(id, action, confirm = false) {
       return;
     }
     if (data.success) {
-      toast(data.noop ? `${id}: already ${action === 'stop' ? 'stopped' : 'running'}`
-                      : `${id}: ${action} OK`, 'success');
+      const already = {stop:'stopped', delete:'removed'}[action] || 'running';
+      toast(data.noop ? `${id}: already ${already}`
+                      : `${id}: ${action === 'delete' ? 'removed' : action + ' OK'}`, 'success');
       if (logEl) logEl.classList.remove('show');
-      if (action === 'install') { await loadConfig(); }
+      if (action === 'install' || action === 'delete') { await loadConfig(); }
     } else {
       toast(`${id}: ${action} failed`, 'error');
       if (logEl && (data.output || data.error)) {
@@ -1251,6 +1277,41 @@ function doUpdate() {
   const id = pendingUpdate;
   closeUpdate();
   if (id) controlService(id, 'update', true);
+}
+
+/* ---------------------------------------------------------------- remove */
+// Keeps the data by default. Deleting it too needs the app name typed, but
+// only for apps that hold data -- the same rule the engine applies.
+let pendingRemove = null;
+function askRemove(id) {
+  pendingRemove = id;
+  document.getElementById('remove-modal-app').textContent = id;
+  document.getElementById('remove-modal-name').textContent = id;
+  document.getElementById('remove-purge').checked = false;
+  document.getElementById('remove-confirm').value = '';
+  syncRemove();
+  document.getElementById('remove-modal').classList.add('show');
+}
+function removeNeedsName() {
+  const svc = CONFIG.find(s => s.id === pendingRemove);
+  return document.getElementById('remove-purge').checked && !!(svc && svc.stateful);
+}
+function syncRemove() {
+  const needName = removeNeedsName();
+  document.getElementById('remove-confirm-wrap').style.display = needName ? '' : 'none';
+  document.getElementById('remove-go').disabled =
+    needName && document.getElementById('remove-confirm').value !== pendingRemove;
+}
+function closeRemove() {
+  document.getElementById('remove-modal').classList.remove('show');
+  pendingRemove = null;
+}
+function doRemove() {
+  const id = pendingRemove;
+  const purge = document.getElementById('remove-purge').checked;
+  const typed = document.getElementById('remove-confirm').value;
+  closeRemove();
+  if (id) controlService(id, 'delete', purge ? typed : false, {purge});
 }
 
 /* ---------------------------------------------------------------- reboot */
@@ -1365,6 +1426,8 @@ function buildCard(svc) {
         <button class="btn btn-start"   id="start-${svc.id}"   onclick="controlService('${svc.id}','start')" disabled>Start</button>
         <button class="btn btn-stop"    id="stop-${svc.id}"    onclick="controlService('${svc.id}','stop')" disabled>Stop</button>
         <button class="btn btn-restart" id="restart-${svc.id}" onclick="controlService('${svc.id}','restart')" disabled>Restart</button>
+        ${svc.removable ? `<button class="btn btn-remove" id="delete-${svc.id}" style="display:none"
+                onclick="askRemove('${svc.id}')">Remove</button>` : ''}
         ${openBtn}
       </div>
       <div class="log-output mono" id="log-${svc.id}"></div>

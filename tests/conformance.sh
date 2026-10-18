@@ -128,7 +128,7 @@ test_app() {
     OUT="$(printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply 2>&1)"; RC=$?
     set -e
     expect_ok "delete --purge"
-    assert_json "after purge" "$(status_json "$app")" '^(absent|downloaded)$'
+    assert_json "after purge" "$(status_json "$app")" '^absent$'
 
     # --- delete again must be a no-op ------------------------------------
     verb "$app" delete;                expect_noop "delete"
