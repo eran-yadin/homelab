@@ -375,11 +375,40 @@ for pair in $OVERRIDE_APPS; do
     case " $APPS " in *" $a "*) test_moved_root_restart "$a" ;; esac
 done
 
+# v1.3.1: an adopted container can be removed from the hub -- the container
+# only. Stage one under feishin's name with a named volume: --purge must be
+# refused, plain delete must remove the container and keep the volume.
+test_adopted_container_remove() {
+    local app=feishin vol=conformance-adopted-vol rc out
+    printf '\n%s=== %s (adopted container: remove, never purge) ===%s\n' "$D" "$app" "$Z"
+    if ! _dk run -d --name "$app" -v "$vol:/data" busybox sleep 600 >/dev/null 2>&1; then
+        skip "adopted: could not stage a container"; return
+    fi
+    set +e
+    out="$(printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply 2>&1)"; rc=$?
+    set -e
+    if [ "$rc" = 1 ] && _dk inspect "$app" >/dev/null 2>&1; then
+        pass "adopted: --purge refused, container still there"
+    else
+        fail "adopted: --purge was not refused (rc=$rc)" "$(printf '%s' "$out" | tail -3)"
+    fi
+    verb "$app" delete;                             expect_ok "adopted: delete"
+    if ! _dk inspect "$app" >/dev/null 2>&1 && _dk volume inspect "$vol" >/dev/null 2>&1; then
+        pass "adopted: container removed, its volume kept"
+    else
+        fail "adopted: container not removed, or its volume went with it"
+    fi
+    _dk rm -f "$app" >/dev/null 2>&1 || true
+    _dk volume rm "$vol" >/dev/null 2>&1 || true
+}
+
 # ...and that loosening it did not stop it refusing a stack that is not ours
 for pair in $OVERRIDE_APPS; do
     a="${pair%%:*}"
     case " $APPS " in *" $a "*) test_foreign_stack_refused "$a" ;; esac
 done
+
+case " $APPS " in *" feishin "*) test_adopted_container_remove ;; esac
 
 # ...and an override that no longer fits the host is refused before compose (v1.2.4)
 for pair in $OVERRIDE_APPS; do

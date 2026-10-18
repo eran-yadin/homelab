@@ -80,14 +80,18 @@ update)
 
 delete)
     need_docker
-    if [ "${APP_ADOPTED:-0}" = 1 ]; then
-        err "$APP_NAME is an adopt-only entry: homelab did not create '$CNAME'"
-        err "    and will not remove it."
+    # An adopted container was not created by homelab, but removing the
+    # container itself is safe: `rm` without -v leaves every volume and bind
+    # mount where it is. What homelab will not do is decide its data is
+    # disposable, so --purge is refused.
+    if [ "${APP_ADOPTED:-0}" = 1 ] && [ "${1:-}" = "--purge" ]; then
+        err "$APP_NAME is adopted: homelab did not create '$CNAME' and will not"
+        err "    destroy its data. Plain delete removes the container and keeps it."
         exit 1
     fi
     exists || { ok "$APP_NAME: nothing to delete"; exit $EX_NOOP; }
     run "${DK[@]}" rm -f "$CNAME"
-    ok "$APP_NAME: removed"
+    ok "$APP_NAME: removed (volumes, if any, kept)"
     ;;
 
 status)

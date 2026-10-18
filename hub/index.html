@@ -738,7 +738,7 @@
     <h3>Remove <span id="remove-modal-app"></span>?</h3>
     <p>Stops it and removes its containers or service. Its data is kept, so
        installing it again picks up where it left off.</p>
-    <label style="display:flex;gap:0.5rem;align-items:center;margin:0.6rem 0;font-size:0.85rem">
+    <label id="remove-purge-row" style="display:flex;gap:0.5rem;align-items:center;margin:0.6rem 0;font-size:0.85rem">
       <input type="checkbox" id="remove-purge" onchange="syncRemove()">
       Also delete its data. This cannot be undone.
     </label>
@@ -1288,6 +1288,8 @@ function askRemove(id) {
   document.getElementById('remove-modal-app').textContent = id;
   document.getElementById('remove-modal-name').textContent = id;
   document.getElementById('remove-purge').checked = false;
+  const svc = CONFIG.find(s => s.id === id);
+  document.getElementById('remove-purge-row').style.display = svc && svc.adopted ? 'none' : 'flex';
   document.getElementById('remove-confirm').value = '';
   syncRemove();
   document.getElementById('remove-modal').classList.add('show');
