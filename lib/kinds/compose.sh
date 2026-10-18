@@ -421,6 +421,18 @@ delete)
     if [ "$purge" -eq 1 ]; then
         warn "$APP_NAME: --purge will DESTROY its data volumes"
         dc down --volumes --remove-orphans
+        # Drop its images too, or status still finds them and reports the app
+        # as "downloaded" after it was purged. Before the state dir goes: the
+        # image list comes from the compose files, override included. An image
+        # some other container still uses is left where it is.
+        for i in $(dc_ro config --images 2>/dev/null || true); do
+            "${DK[@]}" image inspect "$i" >/dev/null 2>&1 || continue
+            if [ -n "$("${DK[@]}" ps -aq --filter "ancestor=$i" 2>/dev/null)" ]; then
+                log "$APP_NAME: keeping image $i, another container uses it"
+            else
+                run "${DK[@]}" image rm "$i" >/dev/null || warn "$APP_NAME: could not remove image $i"
+            fi
+        done
         if [ -d "$APP_STATE" ]; then run $SUDO rm -rf "$APP_STATE"; fi
         ok "$APP_NAME: removed, data destroyed"
     else

@@ -2,6 +2,12 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.3.0 - 2026-10-18
+
+- hub: a Remove button on every installed app. It keeps the app's data unless "Also delete its data" is ticked; for an app that holds data that also needs the app name typed, which the hub hands to the engine's own `delete --purge` confirmation. Adopted apps and what the hub itself stands on (hub, caddy, docker, tailscale) get no button, and the API refuses them
+- `delete --purge` on a compose app also removes its images (not ones another container still uses), so the app reads as absent afterwards instead of "downloaded"
+- `list --json` reports `adopted` and `stateful`
+
 ## v1.2.5 - 2026-10-18
 
 - stremio-server runs on the host network. On a bridge it saw only its 172.x address, so it could not get a `*.stremio.rocks` certificate for the LAN IP, and web.stremio.com (https) refused the plain-http server as mixed content ("NetworkError when attempting to fetch resource"). Now pick the LAN IP under "remote HTTPS" in its settings and use the `https://…stremio.rocks:12470` address. `ports` declares 12470 too
