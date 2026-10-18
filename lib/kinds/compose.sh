@@ -251,6 +251,39 @@ _image_changes() {
     done
 }
 
+# Refuse to act on containers under this project name that were created from
+# some other compose file. $1 says what acting on them would do.
+_refuse_foreign_stack() {
+    # Containers can already exist under this project name without having been
+    # created from THIS compose file -- nucserver runs paperless as project
+    # "paperless" from its own docker-compose.yml. Recreating those from our
+    # file would hand a running database a freshly generated password and a
+    # different volume layout. Compose records the file it was created from;
+    # compare it.
+    existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
+        --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
+    expected_cfg="$(_compose_files_csv)"
+    # Compare on identity, not on the recorded path string: same files under a
+    # different engine root, or in a different order, are still our files. See
+    # _compose_file_key.
+    existing_id="$(printf '%s\n' "$existing_cfg" | tr ',' '\n' | _compose_identity)"
+    expected_id="$(_compose_files | _compose_identity)"
+    if [ -n "$existing_cfg" ] && [ "$existing_id" != "$expected_id" ]; then
+        err "$APP_NAME already has containers on this host, but they were created"
+        err "    from a different compose file:"
+        err "        theirs: $existing_cfg"
+        err "        ours:   $expected_cfg"
+        err "    $1"
+        err "    Refusing."
+        err ""
+        err "    To take it over deliberately, back it up first, then:"
+        err "        homelab backup $APP_NAME <dir> --apply"
+        err "        docker compose -f $existing_cfg down"
+        err "        homelab restore $APP_NAME <dir> --apply && homelab start $APP_NAME --apply"
+        exit 1
+    fi
+}
+
 case "$VERB" in
 
 download)
@@ -292,34 +325,7 @@ start)
             fi
         fi
     done
-    # Containers can already exist under this project name without having been
-    # created from THIS compose file -- nucserver runs paperless as project
-    # "paperless" from its own docker-compose.yml. Recreating those from our
-    # file would hand a running database a freshly generated password and a
-    # different volume layout. Compose records the file it was created from;
-    # compare it.
-    existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
-        --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
-    expected_cfg="$(_compose_files_csv)"
-    # Compare on identity, not on the recorded path string: same files under a
-    # different engine root, or in a different order, are still our files. See
-    # _compose_file_key.
-    existing_id="$(printf '%s\n' "$existing_cfg" | tr ',' '\n' | _compose_identity)"
-    expected_id="$(_compose_files | _compose_identity)"
-    if [ -n "$existing_cfg" ] && [ "$existing_id" != "$expected_id" ]; then
-        err "$APP_NAME already has containers on this host, but they were created"
-        err "    from a different compose file:"
-        err "        theirs: $existing_cfg"
-        err "        ours:   $expected_cfg"
-        err "    Starting would recreate them from ours -- new environment, new"
-        err "    generated secrets, possibly different volumes. Refusing."
-        err ""
-        err "    To take it over deliberately, back it up first, then:"
-        err "        homelab backup $APP_NAME <dir> --apply"
-        err "        docker compose -f $existing_cfg down"
-        err "        homelab restore $APP_NAME <dir> --apply && homelab start $APP_NAME --apply"
-        exit 1
-    fi
+    _refuse_foreign_stack "Starting would recreate them from ours: new environment, new secrets, maybe other volumes."
     preflight_ports ${APP_PORTS:-}
     total="$(_service_count)"
     running="$(_running_count)"
@@ -349,6 +355,7 @@ stop)
 update)
     need_docker
     ensure_state_dir
+    _refuse_foreign_stack "Updating would recreate them from ours: new environment, new secrets, maybe other volumes."
     if ! is_apply; then
         log "$APP_NAME: would pull newer images, show what changes, then recreate"
         if [ "$APP_STATEFUL" = 1 ]; then
@@ -412,6 +419,10 @@ update)
 
 delete)
     need_docker
+    # `down -p <project>` takes away whatever runs under the name, whoever
+    # created it, and --purge adds its volumes. paperless on nucserver is
+    # exactly that case.
+    _refuse_foreign_stack "Deleting would take down a stack homelab did not create, and --purge its data."
     purge=0
     if [ "${1:-}" = "--purge" ]; then purge=1; fi
     if [ -z "$(_containers)" ] && [ "$purge" -eq 0 ]; then
@@ -503,6 +514,7 @@ restore)
     need_docker
     src="${1:-}"; [ -n "$src" ] || die "restore needs a source directory"
     [ -d "$src" ] || die "no such directory: $src"
+    _refuse_foreign_stack "Restoring would overwrite the volumes of a stack homelab did not create."
     # Restoring underneath a running app is destructive in a way that is hard
     # to see: postgres has already initialised a fresh cluster in the volume
     # and holds it open, so the archive lands on top of live files. The right
