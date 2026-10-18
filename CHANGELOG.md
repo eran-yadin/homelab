@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.2.5 - 2026-10-18
+
+- stremio-server runs on the host network. On a bridge it saw only its 172.x address, so it could not get a `*.stremio.rocks` certificate for the LAN IP, and web.stremio.com (https) refused the plain-http server as mixed content ("NetworkError when attempting to fetch resource"). Now pick the LAN IP under "remote HTTPS" in its settings and use the `https://…stremio.rocks:12470` address. `ports` declares 12470 too
+- fix: the port preflight could not tell an app's own host-network container from a stranger, because Docker's `publish=` filter does not see host-network ports. A second `start` of a running host-network app (stremio-server, syncthing, caddy, home-assistant) was refused with "'node' is already listening". A port held while the app's own project has a host-network container running is now treated as the app's own
+
 ## v1.2.4 - 2026-09-13
 
 - compose apps: before `start`, and before `update` recreates anything, a per-host `compose.override.yml` is checked against the host -- every `/dev` path it maps must exist, and an `nvidia` driver needs docker's nvidia runtime. A miss refuses with `homelab download <app> --apply` as the fix, instead of a device error from inside `docker compose up`. Optional hardware is not re-checked; download.sh already reports it

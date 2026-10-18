@@ -125,6 +125,17 @@ preflight_ports() {
         fi
         [ "$proj" = "$APP_NAME" ] && continue
 
+        # A host-network container publishes nothing, so the filter above
+        # cannot see it: the holder is the app's own process (stremio's
+        # `node`). If this app is already running on the host network, the
+        # port is its own -- a second start is a no-op, not a conflict.
+        if [ "${#DK[@]}" -gt 0 ] && "${DK[@]}" ps \
+                --filter "label=com.docker.compose.project=$APP_NAME" \
+                --filter "network=host" --format '{{.Names}}' 2>/dev/null \
+                | grep -q .; then
+            continue
+        fi
+
         if [ -n "$cname" ]; then
             err "$APP_NAME needs port $p, but container '$cname' already has it."
             err "    Stop it first:  homelab stop ${proj:-$cname}"
