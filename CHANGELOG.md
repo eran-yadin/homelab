@@ -2,6 +2,13 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.3.2 - 2026-10-18
+
+- hub: adopted containers (feishin) get the Remove button. It removes the container only; `delete --purge` on an adopted container is refused, because its data is not homelab's to judge. Adopted services such as cockpit (an OS package) still have no button
+- stremio-server back on its bridge network, as before v1.2.5. Host networking did not get web.stremio.com working, and nothing else needed it. The v1.2.5 port-preflight fix for host-network apps stays
+- fix: `apps/ollama/download.sh` had lost its executable bit, so the engine skipped it (it only runs app scripts marked executable) and ollama installed without its VRAM detection
+- conformance: an adopted container is removable, its volume survives, and --purge is refused
+
 ## v1.3.1 - 2026-10-18
 
 - fix: `delete`, `delete --purge`, `update` and `restore` now refuse a stack under the app's project name that homelab did not create, the same check `start` already had. Before, `delete paperless` would have run `docker compose -p paperless down` against nucserver's own paperless stack, and `--purge` would have taken its volumes; v1.3.0's Remove button put that one click away

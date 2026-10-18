@@ -46,6 +46,14 @@ APP_ACTIONS = {"start", "stop", "restart", "update", "install", "delete"}
 # off the page doing the removing (or the network it is reached over); do it
 # from a shell, deliberately.
 NOT_REMOVABLE = {"hub", "caddy", "docker", "tailscale"}
+
+
+def removable(a):
+    """Adopted containers can go (the container only, data kept); an adopted
+    service such as cockpit is an OS package and is left to apt."""
+    if a["app"] in NOT_REMOVABLE:
+        return False
+    return not a.get("adopted") or a.get("kind") == "container"
 SYSTEM_ACTIONS = {"reboot", "poweroff"}
 
 
@@ -308,7 +316,8 @@ def api_config():
             "urls": urls_for(port, lip, tsip, tsdns),
             "presence": a.get("presence", "unknown"),
             "stateful": bool(a.get("stateful")),
-            "removable": not a.get("adopted") and a["app"] not in NOT_REMOVABLE,
+            "removable": removable(a),
+            "adopted": bool(a.get("adopted")),
         })
     return jsonify(out)
 
@@ -357,9 +366,11 @@ def api_control():
     # engine's own check is the one that decides.
     stdin = None
     if action == "delete":
-        if entry.get("adopted") or app_id in NOT_REMOVABLE:
+        if not removable(entry):
             return jsonify({"error": f"{app_id} can't be removed from the hub"}), 403
         if data.get("purge"):
+            if entry.get("adopted"):
+                return jsonify({"error": f"{app_id} is adopted; its data is not homelab's to delete"}), 403
             argv.append("--purge")
             if entry.get("stateful"):
                 if data.get("confirm") != app_id:

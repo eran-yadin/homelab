@@ -6,12 +6,9 @@ services:
     image: stremio/server:v4.20.16
     container_name: stremio-server
     restart: unless-stopped
-    # Host networking: the server offers HTTPS only on addresses it sees on its
-    # own interfaces, and fetches a *.stremio.rocks certificate for the one
-    # chosen. On a bridge it sees only 172.x, so web.stremio.com (an https
-    # page) cannot reach it -- the browser blocks plain http as mixed content.
-    # It listens on 11470 (http) and 12470 (https).
-    network_mode: host
+    ports:
+      - "${STREMIO_HTTP_PORT:-11470}:11470"
+      - "${STREMIO_HTTPS_PORT:-12470}:12470"
     environment:
       NO_CORS: ${NO_CORS:-1}
     volumes:
