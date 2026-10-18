@@ -227,7 +227,10 @@ test_foreign_stack_refused() {
     if [ -z "$img" ]; then skip "foreign: no image found in $app compose"; return; fi
 
     mkdir -p "$dir"
-    printf 'services:\n  impostor:\n    image: %s\n    command: ["sleep","600"]\n    entrypoint: [""]\n' "$img" \
+    # It owns a volume called "data" -- under this project that is the same
+    # <app>_data name most of our compose files use, which is what a purge
+    # would reach for.
+    printf 'services:\n  impostor:\n    image: %s\n    command: ["sleep","600"]\n    entrypoint: [""]\n    volumes: ["data:/x"]\nvolumes:\n  data:\n' "$img" \
         > "$dir/docker-compose.yml"
 
     if ! _dk compose -p "$app" -f "$dir/docker-compose.yml" up -d >/dev/null 2>&1; then
@@ -243,6 +246,30 @@ test_foreign_stack_refused() {
         pass "foreign: refused to recreate a stack it did not create (rc=$rc)"
     else
         fail "foreign: did NOT refuse a foreign stack (rc=$rc)" "$(printf '%s' "$out" | tail -3)"
+    fi
+
+    # v1.3.0: the hub can delete. Every verb that would recreate, remove, or
+    # write into the stack must refuse it, and leave it and its volume alone.
+    local v verb rest
+    for v in update delete "delete --purge" "restore /tmp"; do
+        verb="${v%% *}"; rest="${v#"$verb"}"
+        set +e
+        # shellcheck disable=SC2086
+        out="$(printf '%s\n' "$app" | "$HL" "$verb" "$app" $rest --apply --yes 2>&1)"
+        rc=$?
+        set -e
+        if [ "$rc" != 0 ] && [ "$rc" != 2 ] \
+           && printf '%s' "$out" | grep -q 'different compose file'; then
+            pass "foreign: $v refused (rc=$rc)"
+        else
+            fail "foreign: $v did NOT refuse a foreign stack (rc=$rc)" "$(printf '%s' "$out" | tail -3)"
+        fi
+    done
+    if [ -n "$(_dk ps -aq --filter "label=com.docker.compose.project=$app")" ] \
+       && _dk volume inspect "${app}_data" >/dev/null 2>&1; then
+        pass "foreign: its container and volume are untouched"
+    else
+        fail "foreign: the foreign stack or its volume was removed"
     fi
 
     _dk compose -p "$app" -f "$dir/docker-compose.yml" down -v >/dev/null 2>&1 || true

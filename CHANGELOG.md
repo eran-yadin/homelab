@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.3.1 - 2026-10-18
+
+- fix: `delete`, `delete --purge`, `update` and `restore` now refuse a stack under the app's project name that homelab did not create, the same check `start` already had. Before, `delete paperless` would have run `docker compose -p paperless down` against nucserver's own paperless stack, and `--purge` would have taken its volumes; v1.3.0's Remove button put that one click away
+- conformance: the foreign-stack test gives the impostor an `<app>_data` volume and checks all four verbs refuse and leave the stack and volume alone
+
 ## v1.3.0 - 2026-10-18
 
 - hub: a Remove button on every installed app. It keeps the app's data unless "Also delete its data" is ticked; for an app that holds data that also needs the app name typed, which the hub hands to the engine's own `delete --purge` confirmation. Adopted apps and what the hub itself stands on (hub, caddy, docker, tailscale) get no button, and the API refuses them
