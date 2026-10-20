@@ -159,11 +159,32 @@ _is_oneshot() {
 # service|state|status, one line per container, one-shots removed
 _containers() {
     if [ "${#DK[@]}" -eq 0 ]; then return 0; fi
-    "${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
-        --format '{{.Label "com.docker.compose.service"}}|{{.State}}|{{.Status}}' \
-        2>/dev/null | while IFS='|' read -r svc rest; do
+    if [ -n "${HOMELAB_PS_SNAPSHOT:-}" ] && [ -r "$HOMELAB_PS_SNAPSHOT" ]; then
+        awk -F'|' -v p="$APP_NAME" '$1 == p { print $2 "|" $3 "|" $4 }' "$HOMELAB_PS_SNAPSHOT"
+    else
+        "${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
+            --format '{{.Label "com.docker.compose.service"}}|{{.State}}|{{.Status}}' 2>/dev/null
+    fi | while IFS='|' read -r svc rest; do
             _is_oneshot "$svc" || printf '%s|%s\n' "$svc" "$rest"
         done
+}
+
+# `compose config` answers change only when the files feeding them do, and each
+# call costs ~100 ms of startup and YAML parsing. Cache by their content: the
+# compose files (override included), the .env, and the question asked.
+dc_config_cached() {  # dc_config_cached <config args...>
+    local dir="${XDG_CACHE_HOME:-$HOME/.cache}/homelab" key f out
+    key="$( { printf '%s\n' "$APP_NAME" "$*"
+              while IFS= read -r f; do cat "$f"; done < <(_compose_files)
+              if [ -r "$APP_STATE/.env" ]; then cat "$APP_STATE/.env"; fi
+            } 2>/dev/null | sha256sum | cut -c1-32)"
+    if [ -s "$dir/$key" ]; then cat "$dir/$key"; return 0; fi
+    out="$(dc_ro config "$@")" || return 1
+    [ -n "$out" ] || return 1
+    if mkdir -p "$dir" 2>/dev/null; then
+        printf '%s\n' "$out" > "$dir/$key.$$" 2>/dev/null && mv -f "$dir/$key.$$" "$dir/$key" 2>/dev/null
+    fi
+    printf '%s\n' "$out"
 }
 
 _service_count() {
@@ -171,7 +192,7 @@ _service_count() {
     while read -r svc; do
         [ -n "$svc" ] || continue
         _is_oneshot "$svc" || n=$((n+1))
-    done < <(dc_ro config --services 2>/dev/null)
+    done < <(dc_config_cached --services 2>/dev/null)
     printf '%s' "$n"
 }
 _running_count() { _containers | awk -F'|' '$2=="running"' | grep -c . || true; }
@@ -457,14 +478,21 @@ status)
         emit_status absent false detail="$(dk_reason)"
         exit 0
     fi
-    total="$(_service_count)"
     lines="$(_containers)"
+    # Never downloaded, or purged: download always creates the state dir and
+    # purge removes it, so with no containers either there is nothing to ask
+    # compose about. Most of the catalog is in this state on any one host.
+    if [ -z "$lines" ] && [ ! -d "$APP_STATE" ]; then
+        emit_status absent false
+        exit 0
+    fi
+    total="$(_service_count)"
     if [ -z "$lines" ]; then
         # `compose images` only lists images belonging to EXISTING containers,
         # so after a `down` it is empty even though every image is still
         # present locally. Ask the daemon about the images themselves.
         have_img=0
-        for i in $(dc_ro config --images 2>/dev/null || true); do
+        for i in $(dc_config_cached --images 2>/dev/null || true); do
             if "${DK[@]}" image inspect "$i" >/dev/null 2>&1; then have_img=1; break; fi
         done
         if [ "$have_img" = 1 ]; then

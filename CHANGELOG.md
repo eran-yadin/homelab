@@ -2,6 +2,14 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.4.0 - 2026-10-20
+
+- hub: statuses come from a cache kept by one background thread (every 30 s), so `/api/status` answers in milliseconds instead of ~5.6 s, and all open tabs share one refresh. With no page asking for 2 minutes the thread stops running status at all
+- hub: a button press re-reads only that app (`/api/control` returns its new status; `/api/status?app=<id>` for one app), and the page repaints that card instead of waiting on every app
+- page: no polling while the tab is hidden; refreshes when you come back
+- engine: `status` over many apps resolves docker once and takes one `docker ps` snapshot for all of them; `compose config --services/--images` is cached by a hash of the compose files and `.env`; an app with no containers and no state dir is `absent` without asking compose. `status --all` on nucserver: 9.5 s -> 1.5 s, ~8 s -> 1.4 s CPU
+- fix: an app whose compose shares a common image (manyfold's `alpine:3` init step) was reported `downloaded` when only that shared image was present
+
 ## v1.3.2 - 2026-10-18
 
 - hub: adopted containers (feishin) get the Remove button. It removes the container only; `delete --purge` on an adopted container is refused, because its data is not homelab's to judge. Adopted services such as cockpit (an OS package) still have no button

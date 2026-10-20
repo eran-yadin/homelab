@@ -92,7 +92,7 @@ test_app() {
     # --- dry run must change nothing -----------------------------------
     local before after
     before="$(status_json "$app")"
-    "$HL" install "$app" >/dev/null 2>&1
+    "$HL" install "$app" >/dev/null 2>&1 || true   # may fail (adopted apps); only the before/after matters
     after="$(status_json "$app")"
     if [ "$before" = "$after" ]; then pass "dry run changed nothing"
     else fail "dry run changed state" "before=$before after=$after"; fi

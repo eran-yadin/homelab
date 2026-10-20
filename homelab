@@ -209,6 +209,9 @@ cmd_status() {
     elif [ "$ALL" = 1 ]; then names="$(catalog_names)"
     else names="$(catalog_names)"; fi
 
+    status_prefetch
+    # shellcheck disable=SC2064
+    trap "rm -f '${HOMELAB_PS_SNAPSHOT:-}'" EXIT
     if [ "$JSON" = 1 ]; then
         for n in $names; do app_run_verb "$n" status || true; done
         return

@@ -117,11 +117,11 @@ def catalog(force=False):
     return data
 
 
-def app_statuses():
-    """One JSON line per app from `homelab status --all --json`."""
+def _status_lines(args, timeout):
+    """`homelab status ... --json` prints one JSON object per app."""
     out = []
     try:
-        r = run_homelab(["status", "--all", "--json"], timeout=40)
+        r = run_homelab(["status"] + args + ["--json"], timeout=timeout)
         for line in r.stdout.splitlines():
             line = line.strip()
             if not line:
@@ -133,6 +133,56 @@ def app_statuses():
     except Exception:
         pass
     return out
+
+
+# ------------------------------------------------------------ status cache
+# A full `homelab status --all` takes a second or more on the NUC. Every page
+# and every tab used to run one per poll. Now one background thread keeps the
+# answer and requests read it. The thread stops refreshing when no page has
+# asked for a while, so an unwatched hub costs nothing.
+STATUS_INTERVAL = 30       # seconds between background refreshes
+STATUS_IDLE_AFTER = 120    # no request for this long -> stop refreshing
+_status = {"services": {}, "at": 0.0, "asked": time.time()}
+_status_lock = threading.Lock()      # guards _status
+_refresh_lock = threading.Lock()     # one full refresh at a time
+
+
+def refresh_all():
+    with _refresh_lock:
+        rows = _status_lines(["--all"], timeout=60)
+        if rows:
+            with _status_lock:
+                _status["services"] = {r["app"]: r for r in rows}
+                _status["at"] = time.time()
+
+
+def refresh_one(app_id):
+    """Re-read one app (after a button press) and fold it into the cache."""
+    rows = _status_lines([app_id], timeout=30)
+    with _status_lock:
+        for r in rows:
+            _status["services"][r["app"]] = r
+    return rows[0] if rows else None
+
+
+def app_statuses():
+    """Statuses for the page. Cached; only a stale cache is refreshed inline,
+    which happens on the first visit after the hub sat unwatched."""
+    _status["asked"] = time.time()
+    if time.time() - _status["at"] > STATUS_INTERVAL + 10:
+        refresh_all()
+    with _status_lock:
+        return list(_status["services"].values())
+
+
+def _status_loop():
+    while True:
+        if time.time() - _status["asked"] < STATUS_IDLE_AFTER:
+            try:
+                refresh_all()
+            except Exception:
+                pass
+        time.sleep(STATUS_INTERVAL)
 
 
 def urls_for(port, lip, tsip, tsdns):
@@ -324,6 +374,14 @@ def api_config():
 
 @app.route("/api/status")
 def api_status():
+    # ?app=<id>: re-read just that one, now -- what the page asks for after
+    # it changed something, instead of waiting on every app.
+    one = request.args.get("app")
+    if one:
+        if one not in {a["app"] for a in catalog()}:
+            return jsonify({"error": f"unknown app: {one}"}), 404
+        row = refresh_one(one)
+        return jsonify({"services": [row] if row else []})
     tsip, tsdns = tailscale_info()
     return jsonify({
         "services": app_statuses(),
@@ -383,6 +441,7 @@ def api_control():
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
                            input=stdin if stdin is not None else "")
         _catalog_cache["at"] = 0          # presence may have changed
+        status = refresh_one(app_id)       # the page repaints this card from it
         output = (r.stderr + r.stdout).strip()[-3000:]
         if r.returncode == 3:
             return jsonify({"success": False, "needs_confirm": True, "output": output})
@@ -392,6 +451,7 @@ def api_control():
             "success": ok,
             "noop": r.returncode == 2,
             "output": output[-1500:],
+            "status": status,
         })
     except subprocess.TimeoutExpired:
         return jsonify({"success": False, "error": f"{action} timed out"}), 504
@@ -526,5 +586,6 @@ def index():
 
 
 if __name__ == "__main__":
+    threading.Thread(target=_status_loop, daemon=True, name="status").start()
     print(f"homelab hub on http://{local_ip()}:7070")
     app.run(host="0.0.0.0", port=7070, debug=False)
