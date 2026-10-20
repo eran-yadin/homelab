@@ -71,11 +71,24 @@ def local_ip():
         return "127.0.0.1"
 
 
+_ts_cache = {"at": 0.0, "val": (None, None)}
+
+
 def tailscale_info():
     """Tailscale IP and MagicDNS name, or None if tailscale isn't up.
 
-    Returns (ip, dns_name). Either may be None.
+    Returns (ip, dns_name). Either may be None. Cached for 30 s: the page
+    polls often now that status is cheap, and this is a subprocess.
     """
+    now = time.time()
+    if now - _ts_cache["at"] < 30:
+        return _ts_cache["val"]
+    _ts_cache["val"] = _tailscale_info()
+    _ts_cache["at"] = now
+    return _ts_cache["val"]
+
+
+def _tailscale_info():
     if not shutil.which("tailscale"):
         return None, None
     try:
@@ -141,6 +154,7 @@ def _status_lines(args, timeout):
 # answer and requests read it. The thread stops refreshing when no page has
 # asked for a while, so an unwatched hub costs nothing.
 STATUS_INTERVAL = 30       # seconds between background refreshes
+STATUS_INTERVAL_EVENTS = 120   # ...while docker events keep the cache current
 STATUS_IDLE_AFTER = 120    # no request for this long -> stop refreshing
 _status = {"services": {}, "at": 0.0, "asked": time.time()}
 _status_lock = threading.Lock()      # guards _status
@@ -176,13 +190,89 @@ def app_statuses():
 
 
 def _status_loop():
+    # With the event stream up, polling is only the safety net: it catches
+    # what emits no docker event (systemd apps such as amp or netmon) and
+    # anything the stream missed. Without it, poll as before.
+    last = 0.0
     while True:
-        if time.time() - _status["asked"] < STATUS_IDLE_AFTER:
+        every = STATUS_INTERVAL_EVENTS if _events["up"] else STATUS_INTERVAL
+        if (time.time() - _status["asked"] < STATUS_IDLE_AFTER
+                and time.time() - last >= every):
             try:
                 refresh_all()
             except Exception:
                 pass
-        time.sleep(STATUS_INTERVAL)
+            last = time.time()
+        time.sleep(5)
+
+
+# ------------------------------------------------------------ docker events
+# A container that starts, stops, dies or changes health refreshes its app
+# within a couple of seconds, instead of waiting for the next poll. Compose
+# labels every container with its project, which is the app name; a bare
+# container (feishin) has no label, so it triggers a full refresh instead.
+EVENT_DEBOUNCE = 1.5       # `up` on a multi-container app fires a burst
+_events = {"up": False, "pending": set(), "all": False, "last": 0.0}
+_events_cv = threading.Condition()
+
+
+def _events_reader():
+    """Read `docker events` forever; reconnect with backoff when it drops
+    (docker restarting, say). While it is down the poll interval is short."""
+    backoff = 1
+    argv = ["docker", "events", "--format", "{{json .}}",
+            "--filter", "type=container",
+            "--filter", "event=start", "--filter", "event=stop",
+            "--filter", "event=die", "--filter", "event=destroy",
+            "--filter", "event=health_status"]
+    while True:
+        started = time.time()
+        try:
+            p = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True)
+            _events["up"] = True
+            for line in p.stdout:
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                attrs = (ev.get("Actor") or {}).get("Attributes") or {}
+                proj = attrs.get("com.docker.compose.project")
+                with _events_cv:
+                    if proj:
+                        _events["pending"].add(proj)
+                    else:
+                        _events["all"] = True
+                    _events["last"] = time.time()
+                    _events_cv.notify()
+            p.wait()
+        except Exception:
+            pass
+        _events["up"] = False
+        # a stream that lived a while was healthy; start the backoff over
+        backoff = 1 if time.time() - started > 60 else min(backoff * 2, 60)
+        time.sleep(backoff)
+
+
+def _events_worker():
+    """Wait for a burst to settle, then re-read only the apps it touched."""
+    while True:
+        with _events_cv:
+            while not _events["pending"] and not _events["all"]:
+                _events_cv.wait()
+            while time.time() - _events["last"] < EVENT_DEBOUNCE:
+                _events_cv.wait(EVENT_DEBOUNCE)
+            apps, everything = _events["pending"], _events["all"]
+            _events["pending"], _events["all"] = set(), False
+        try:
+            known = {a["app"] for a in catalog()}
+            if everything:
+                refresh_all()
+            else:
+                for a in sorted(apps & known):
+                    refresh_one(a)
+        except Exception:
+            pass
 
 
 def urls_for(port, lip, tsip, tsdns):
@@ -587,5 +677,8 @@ def index():
 
 if __name__ == "__main__":
     threading.Thread(target=_status_loop, daemon=True, name="status").start()
+    if shutil.which("docker"):
+        threading.Thread(target=_events_reader, daemon=True, name="events").start()
+        threading.Thread(target=_events_worker, daemon=True, name="events-worker").start()
     print(f"homelab hub on http://{local_ip()}:7070")
     app.run(host="0.0.0.0", port=7070, debug=False)

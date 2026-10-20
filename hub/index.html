@@ -1469,9 +1469,10 @@ async function loadConfig() {
   setFilter(stillValid ? currentFilter : 'all');
 }
 
-async function refresh() {
+let refreshFailed = false;   // so a down backend toasts once, not every poll
+async function refresh(quiet = false) {
   const btn = document.getElementById('refresh-btn');
-  btn.classList.add('spinning');
+  if (!quiet) btn.classList.add('spinning');
   try {
     const res = await fetch(`${API}/api/status`, {cache: 'no-store'});
     const data = await res.json();
@@ -1481,14 +1482,19 @@ async function refresh() {
     updateServiceStatuses(data.services);
     document.getElementById('last-update-time').textContent =
       new Date().toLocaleTimeString('en-GB');
+    refreshFailed = false;
   } catch (e) {
-    toast('Failed to reach backend — is homelab-hub running?', 'error');
+    if (!quiet || !refreshFailed)
+      toast('Failed to reach backend — is homelab-hub running?', 'error');
+    refreshFailed = true;
   } finally {
     btn.classList.remove('spinning');
   }
   clearTimeout(refreshTimer);
-  // A hidden tab does not poll at all; visibilitychange refreshes on return.
-  if (!document.hidden) refreshTimer = setTimeout(refresh, 30000);
+  // The server answers from its cache (docker events keep it current), so a
+  // short interval is cheap. A hidden tab does not poll at all;
+  // visibilitychange refreshes on return.
+  if (!document.hidden) refreshTimer = setTimeout(() => refresh(true), 5000);
 }
 
 document.addEventListener('visibilitychange', () => {
