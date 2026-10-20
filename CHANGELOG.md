@@ -2,6 +2,13 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.6.0 - 2026-10-20
+
+- hub: every action it runs is recorded -- command, exit code, timing, the full terminal output (stderr and stdout interleaved, colours stripped, capped at 256 KB) and the `err` lines pulled out of it. The last 50 are kept in `/var/lib/homelab-hub/runs/` and survive a hub restart. `GET /api/runs`, `GET /api/runs/<id>`
+- hub: a failed action's toast now says why (the first error, wrapped lines joined) and stays until clicked; click it for a details popup with the error lines, command, exit code, duration and the full output, opened at the first error, with Copy. The card shows the error lines instead of the last 1500 characters, plus a details link. A History button lists recent actions. A timeout is recorded too, with the output up to it
+- fix: after any action on a card, Remove (and Install after a failed install) stayed disabled until the page was reloaded
+- testenv: no longer forwards port 11470, which the Stremio desktop app on the host uses (the VM would not boot while Stremio ran, and earlier it made Stremio find the VM's server)
+
 ## v1.5.0 - 2026-10-20
 
 - hub: listens to `docker events` (container start/stop/die/destroy/health). The app a container belongs to is re-read within ~2 s of the change, debounced so a multi-container `up` re-reads once; a container with no compose label triggers a full refresh. Reconnects with backoff if docker restarts

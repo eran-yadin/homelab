@@ -10,7 +10,7 @@ Every state-changing action goes through one command -- `sudo homelab <verb>
 """
 
 from flask import Flask, jsonify, request, send_from_directory
-import subprocess, socket, os, re, time, json, shutil, threading
+import subprocess, socket, os, re, time, json, shutil, threading, shlex, secrets
 
 app = Flask(__name__, static_folder=".")
 
@@ -487,6 +487,139 @@ def api_status():
     })
 
 
+# ------------------------------------------------------------- run records
+# Every action the hub runs is kept: the command, exit code, timing, the full
+# terminal output, and the error lines pulled out of it. The page shows them
+# in a details popup; before this a failure was a 7-second toast and the last
+# 1500 characters of output, which on an install is usually the dependencies,
+# not the error. Kept on disk so they survive the restart an update causes.
+RUNS_DIR = os.path.join(HUB_STATE, "runs")
+RUNS_KEEP = 50
+RUN_OUTPUT_MAX = 256 * 1024
+RUN_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_runs_lock = threading.Lock()
+
+
+def _clean(text):
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    return _ANSI.sub("", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
+
+
+def error_lines(output, ok):
+    """The engine prefixes its errors with `err`; keep those, minus the
+    prefix. A failure with none (a crash, a docker message) falls back to
+    the last lines it printed."""
+    errs = [re.sub(r"^\s*err ?", "", l) for l in output.splitlines()
+            if re.match(r"^\s*err\b", l)]
+    if errs or ok:
+        return errs
+    tail = [l for l in output.splitlines() if l.strip()]
+    return tail[-8:]
+
+
+def first_sentence(errs):
+    """The engine wraps a long error onto indented lines; join them back up
+    to the end of the first sentence, for a one-line summary."""
+    out = errs[0].strip()
+    for l in errs[1:]:
+        if out.endswith((".", ":", "!")) or not l.startswith((" ", "\t")):
+            break
+        out += " " + l.strip()
+    return out[:240]
+
+
+def save_run(rec):
+    with _runs_lock:
+        os.makedirs(RUNS_DIR, exist_ok=True)
+        path = os.path.join(RUNS_DIR, rec["id"] + ".json")
+        with open(path + ".tmp", "w") as f:
+            json.dump(rec, f)
+        os.replace(path + ".tmp", path)
+        old = sorted(n for n in os.listdir(RUNS_DIR) if n.endswith(".json"))
+        for n in old[:-RUNS_KEEP]:
+            try:
+                os.remove(os.path.join(RUNS_DIR, n))
+            except OSError:
+                pass
+
+
+def load_runs():
+    try:
+        names = sorted((n for n in os.listdir(RUNS_DIR) if n.endswith(".json")), reverse=True)
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        try:
+            with open(os.path.join(RUNS_DIR, n)) as f:
+                out.append(json.load(f))
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def run_action(app_id, action, argv, stdin, timeout):
+    """Run one engine command and keep the record of it."""
+    started = time.time()
+    rec = {
+        "id": time.strftime("%Y%m%d-%H%M%S", time.localtime(started))
+              + f"-{app_id}-{action}-{secrets.token_hex(2)}",
+        "app": app_id, "action": action, "command": shlex.join(argv),
+        "started": started, "rc": None, "timed_out": False,
+    }
+    try:
+        # One stream, so the terminal output reads in the order it happened.
+        r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           text=True, timeout=timeout,
+                           input=stdin if stdin is not None else "")
+        rec["rc"], output = r.returncode, r.stdout
+    except subprocess.TimeoutExpired as e:
+        rec["timed_out"], output = True, e.output
+    output = _clean(output)
+    if rec["timed_out"]:
+        output += f"\n[hub] stopped waiting after {timeout} s; the command may still be running\n"
+    rec["duration"] = round(time.time() - started, 1)
+    rec["needs_confirm"] = rec["rc"] == 3
+    # exit 2 means "already in that state" - a success, not a failure
+    rec["ok"] = rec["rc"] in (0, 2)
+    rec["noop"] = rec["rc"] == 2
+    if len(output) > RUN_OUTPUT_MAX:
+        output = "[hub] output trimmed to the last 256 KB\n" + output[-RUN_OUTPUT_MAX:]
+    rec["output"] = output
+    rec["errors"] = error_lines(output, rec["ok"] or rec["needs_confirm"])
+    if rec["timed_out"]:
+        rec["summary"] = f"{action} timed out after {timeout} s"
+    elif rec["ok"] or rec["needs_confirm"]:
+        rec["summary"] = ""
+    else:
+        rec["summary"] = (first_sentence(rec["errors"]) if rec["errors"]
+                          else f"{action} failed with exit code {rec['rc']}")
+    try:
+        save_run(rec)
+    except OSError:
+        pass                    # a full disk must not also lose the answer
+    return rec
+
+
+@app.route("/api/runs")
+def api_runs():
+    """Recent actions, newest first, without their (large) output."""
+    return jsonify([{k: v for k, v in r.items() if k != "output"} for r in load_runs()])
+
+
+@app.route("/api/runs/<run_id>")
+def api_run(run_id):
+    if not RUN_ID.match(run_id):
+        return jsonify({"error": "bad run id"}), 400
+    try:
+        with open(os.path.join(RUNS_DIR, run_id + ".json")) as f:
+            return jsonify(json.load(f))
+    except (OSError, ValueError):
+        return jsonify({"error": "no such run"}), 404
+
+
 @app.route("/api/control", methods=["POST"])
 def api_control():
     data = request.json or {}
@@ -528,23 +661,21 @@ def api_control():
     # install can take many minutes (image pulls, builds)
     timeout = 1800 if action in ("install", "update") else 120
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                           input=stdin if stdin is not None else "")
+        rec = run_action(app_id, action, argv, stdin, timeout)
         _catalog_cache["at"] = 0          # presence may have changed
         status = refresh_one(app_id)       # the page repaints this card from it
-        output = (r.stderr + r.stdout).strip()[-3000:]
-        if r.returncode == 3:
-            return jsonify({"success": False, "needs_confirm": True, "output": output})
-        # exit 2 means "already in that state" - a success, not a failure
-        ok = r.returncode in (0, 2)
-        return jsonify({
-            "success": ok,
-            "noop": r.returncode == 2,
-            "output": output[-1500:],
+        brief = {
+            "run": rec["id"],
+            "summary": rec["summary"],
+            "errors": rec["errors"][:12],
+            "output": rec["output"].strip()[-3000:],
             "status": status,
-        })
-    except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "error": f"{action} timed out"}), 504
+        }
+        if rec["needs_confirm"]:
+            return jsonify({"success": False, "needs_confirm": True, **brief})
+        if rec["timed_out"]:
+            return jsonify({"success": False, "error": rec["summary"], **brief}), 504
+        return jsonify({"success": rec["ok"], "noop": rec["noop"], **brief})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
