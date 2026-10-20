@@ -540,6 +540,43 @@
   .modal-card p { color: var(--text); font-size: 0.95rem; margin-bottom: 1.2rem; line-height: 1.5; }
   .modal-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
 
+  /* --- run details / history ------------------------------------------- */
+  .modal-card.wide { max-width: 860px; border-color: var(--border2); }
+  .modal-card.wide.failed { border-color: var(--red); }
+  .modal-card.wide h3 { color: var(--text); }
+  .modal-card.wide.failed h3 { color: var(--red); }
+  .run-meta { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.8rem; line-height: 1.7; word-break: break-all; }
+  .run-meta b { color: var(--text); font-weight: normal; }
+  .run-errors {
+    font-size: 0.75rem; color: var(--red); background: var(--red-dim);
+    border-left: 3px solid var(--red); padding: 0.6rem 0.8rem; margin-bottom: 0.8rem;
+    white-space: pre-wrap; max-height: 30vh; overflow-y: auto;
+  }
+  .run-output {
+    font-size: 0.68rem; color: var(--muted); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.6rem; max-height: 45vh; overflow: auto; white-space: pre-wrap;
+    margin: 0.4rem 0 1rem;
+  }
+  .run-output .err { color: var(--red); }
+  .run-section { font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .run-row {
+    display: grid; grid-template-columns: 4.5rem 1fr auto; gap: 0.6rem; align-items: baseline;
+    padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.72rem;
+  }
+  .run-row:hover { background: var(--bg3); }
+  .run-row .when { color: var(--muted); }
+  .run-row .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run-row .what small { color: var(--muted); margin-left: 0.5rem; }
+  .run-row .res.ok { color: var(--green); }
+  .run-row .res.bad { color: var(--red); }
+  .run-list { max-height: 60vh; overflow-y: auto; margin-bottom: 1rem; }
+  .toast.clickable { cursor: pointer; }
+  .toast.clickable:hover { border-color: var(--red); }
+  .toast .hint { color: var(--muted); margin-left: 0.6rem; }
+  .toast .close { color: var(--muted); margin-left: 0.8rem; cursor: pointer; }
+  .log-output .err { color: var(--red); }
+  .log-output .details-link { color: var(--amber); cursor: pointer; text-decoration: underline; }
+
   .log-output {
     font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--muted);
     background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
@@ -637,6 +674,7 @@
        style="text-decoration:none">Docs</a>
     <button class="filter-tab" onclick="openUpdate()"
             title="Install the latest homelab version. Opens a tab that shows the progress.">Update</button>
+    <button class="filter-tab" onclick="openHistory()" title="What the hub ran recently, with the full output">History</button>
     <button class="danger-btn" onclick="askReboot()" title="Reboot the server">Reboot</button>
     <span class="clock" id="clock">--:--:--</span>
     <button class="refresh-btn" id="refresh-btn" onclick="refresh()">
@@ -754,6 +792,30 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="run-modal">
+  <div class="modal-card wide" id="run-card">
+    <h3 id="run-title"></h3>
+    <div class="run-meta mono" id="run-meta"></div>
+    <div class="run-errors mono" id="run-errors"></div>
+    <div class="run-section mono">terminal output</div>
+    <pre class="run-output mono" id="run-output"></pre>
+    <div class="modal-actions">
+      <button class="btn btn-copy" id="run-copy" onclick="copyRun()">Copy output</button>
+      <button class="btn btn-open" onclick="closeRun()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="history-modal">
+  <div class="modal-card wide">
+    <h3>Recent actions</h3>
+    <div class="run-list mono" id="history-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-open" onclick="closeHistory()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="reboot-modal">
   <div class="modal-card">
     <h3>Reboot server?</h3>
@@ -784,12 +846,31 @@ let installedOnly = localStorage.getItem('hub.installedOnly') === '1';
 
 /* ---------------------------------------------------------------- utils */
 
-function toast(msg, type = 'info') {
+// opts.run: a run id -- the toast opens its details when clicked, and stays
+// until it is (an error you could not read in 7 seconds was the problem).
+function toast(msg, type = 'info', opts = {}) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
+  if (opts.run) {
+    el.classList.add('clickable');
+    el.title = 'Show what happened';
+    const hint = document.createElement('span');
+    hint.className = 'hint'; hint.textContent = 'details ›';
+    const x = document.createElement('span');
+    x.className = 'close'; x.textContent = '×'; x.title = 'Dismiss';
+    x.onclick = e => { e.stopPropagation(); el.remove(); };
+    el.append(hint, x);
+    el.onclick = () => { el.remove(); openRun(opts.run); };
+    return;
+  }
   setTimeout(() => el.remove(), type === 'error' ? 7000 : 3500);
+}
+
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function updateClock() {
@@ -1196,6 +1277,10 @@ function updateServiceStatuses(statuses) {
     ['start','stop','restart','delete'].forEach(a => {
       if (b(a)) b(a).style.display = installed ? '' : 'none';
     });
+    // controlService disables every button while it runs; give back the
+    // ones start/stop/restart logic below does not cover.
+    if (b('install')) b('install').disabled = false;
+    if (b('delete'))  b('delete').disabled  = false;
     if (b('start'))   b('start').disabled   = running;
     if (b('stop'))    b('stop').disabled    = !running;
     if (b('restart')) b('restart').disabled = !running;
@@ -1241,9 +1326,14 @@ async function controlService(id, action, confirm = false, extra = {}) {
         updateServiceStatuses(Object.values(STATUS));    // ...so repaint them from what we know
       }
     } else {
-      toast(`${id}: ${action} failed`, 'error');
-      if (logEl && (data.output || data.error)) {
-        logEl.textContent = data.output || data.error;
+      const why = data.summary || data.error || '';
+      toast(`${id}: ${action} failed${why ? ' — ' + why : ''}`, 'error', {run: data.run});
+      if (logEl) {
+        // The error lines, not the tail of everything: on an install the
+        // tail is usually its dependencies' output.
+        const lines = (data.errors && data.errors.length) ? data.errors : [why || 'failed'];
+        logEl.innerHTML = lines.map(l => `<span class="err">${escapeHtml(l)}</span>`).join('\n')
+          + (data.run ? `\n<span class="details-link" onclick="openRun('${data.run}')">details: full output ›</span>` : '');
         logEl.classList.add('show');
       }
     }
@@ -1333,6 +1423,78 @@ function doRemove() {
   closeRemove();
   if (id) controlService(id, 'delete', purge ? typed : false, {purge});
 }
+
+/* ----------------------------------------------------------- run details */
+let currentRun = null;
+async function openRun(runId) {
+  try {
+    const res = await fetch(`${API}/api/runs/${encodeURIComponent(runId)}`, {cache: 'no-store'});
+    const r = await res.json();
+    if (r.error) { toast(r.error, 'error'); return; }
+    currentRun = r;
+    const failed = !r.ok && !r.needs_confirm;
+    const verdict = r.timed_out ? 'timed out' : r.needs_confirm ? 'asked to confirm'
+                  : r.noop ? 'nothing to do' : r.ok ? 'OK' : 'failed';
+    document.getElementById('run-card').classList.toggle('failed', failed);
+    document.getElementById('run-title').textContent = `${r.app} · ${r.action} ${verdict}`;
+    const when = new Date(r.started * 1000).toLocaleString('en-GB');
+    document.getElementById('run-meta').innerHTML =
+      `exit code <b>${r.rc === null ? '—' : r.rc}</b> · took <b>${r.duration}s</b> · <b>${escapeHtml(when)}</b><br>` +
+      `command <b>${escapeHtml(r.command)}</b>`;
+    const errs = document.getElementById('run-errors');
+    const lines = (r.errors && r.errors.length) ? r.errors : (failed ? [r.summary] : []);
+    errs.textContent = lines.join('\n');
+    errs.style.display = lines.length ? '' : 'none';
+    document.getElementById('run-output').innerHTML = (r.output || '(no output)')
+      .split('\n').map(l => /^\s*err\b/.test(l) ? `<span class="err">${escapeHtml(l)}</span>` : escapeHtml(l))
+      .join('\n');
+    document.getElementById('run-modal').classList.add('show');
+    const out = document.getElementById('run-output');
+    // open where the error is, not at the top of a long install log
+    const first = out.querySelector('.err');
+    out.scrollTop = first ? first.offsetTop - out.offsetTop - 40 : out.scrollHeight;
+  } catch (e) {
+    toast(`Could not load the details: ${e.message}`, 'error');
+  }
+}
+function closeRun() { document.getElementById('run-modal').classList.remove('show'); currentRun = null; }
+async function copyRun() {
+  if (!currentRun) return;
+  const text = `$ ${currentRun.command}\n${currentRun.output}\n[exit ${currentRun.rc}]`;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    // plain http on the LAN has no clipboard API; fall back to a selection
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  toast('Output copied', 'success');
+}
+
+async function openHistory() {
+  const list = document.getElementById('history-list');
+  list.innerHTML = '<div style="padding:0.5rem;color:var(--muted)">loading…</div>';
+  document.getElementById('history-modal').classList.add('show');
+  try {
+    const res = await fetch(`${API}/api/runs`, {cache: 'no-store'});
+    const runs = await res.json();
+    list.innerHTML = runs.length ? runs.map(r => {
+      const bad = !r.ok && !r.needs_confirm;
+      const t = new Date(r.started * 1000);
+      const when = t.toDateString() === new Date().toDateString()
+        ? t.toLocaleTimeString('en-GB') : t.toLocaleDateString('en-GB');
+      return `<div class="run-row" onclick="closeHistory(); openRun('${r.id}')">
+          <span class="when">${escapeHtml(when)}</span>
+          <span class="what">${escapeHtml(r.app)} ${escapeHtml(r.action)}<small>${escapeHtml(r.summary || '')}</small></span>
+          <span class="res ${bad ? 'bad' : 'ok'}">${r.timed_out ? 'TIMEOUT' : bad ? 'FAILED' : r.noop ? 'NO-OP' : 'OK'}</span>
+        </div>`;
+    }).join('') : '<div style="padding:0.5rem;color:var(--muted)">nothing yet — actions from the hub show up here</div>';
+  } catch (e) {
+    list.innerHTML = `<div style="padding:0.5rem;color:var(--red)">${escapeHtml(e.message)}</div>`;
+  }
+}
+function closeHistory() { document.getElementById('history-modal').classList.remove('show'); }
 
 /* ---------------------------------------------------------------- reboot */
 
@@ -1505,7 +1667,7 @@ document.addEventListener('visibilitychange', () => {
 /* ------------------------------------------------------------- shortcuts */
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeReboot(); closeFilterModal(); document.activeElement.blur(); return; }
+  if (e.key === 'Escape') { closeReboot(); closeFilterModal(); closeRun(); closeHistory(); document.activeElement.blur(); return; }
   if (e.target.tagName === 'INPUT') return;
   if (e.key === '/') { e.preventDefault(); document.getElementById('search').focus(); }
   if (e.key === 'r') refresh();
