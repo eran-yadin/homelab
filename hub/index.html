@@ -1217,6 +1217,7 @@ async function controlService(id, action, confirm = false, extra = {}) {
     .map(a => document.getElementById(`${a}-${id}`));
   btns.forEach(b => b && (b.disabled = true));
   const logEl = document.getElementById(`log-${id}`);
+  let fresh = null;   // this app's status, as the server re-read it after acting
 
   try {
     const res = await fetch(`${API}/api/control`, {
@@ -1225,6 +1226,7 @@ async function controlService(id, action, confirm = false, extra = {}) {
       body: JSON.stringify({service: id, action, confirm, ...extra})
     });
     const data = await res.json();
+    fresh = data.status || null;
     if (data.needs_confirm) {
       askUpdate(id, data.output || '');
       return;
@@ -1234,7 +1236,10 @@ async function controlService(id, action, confirm = false, extra = {}) {
       toast(data.noop ? `${id}: already ${already}`
                       : `${id}: ${action === 'delete' ? 'removed' : action + ' OK'}`, 'success');
       if (logEl) logEl.classList.remove('show');
-      if (action === 'install' || action === 'delete') { await loadConfig(); }
+      if (action === 'install' || action === 'delete') {
+        await loadConfig();                              // rebuilds every card...
+        updateServiceStatuses(Object.values(STATUS));    // ...so repaint them from what we know
+      }
     } else {
       toast(`${id}: ${action} failed`, 'error');
       if (logEl && (data.output || data.error)) {
@@ -1245,6 +1250,19 @@ async function controlService(id, action, confirm = false, extra = {}) {
   } catch (e) {
     toast(`Failed: ${e.message}`, 'error');
   } finally {
+    // Repaint just this card. Waiting on every app's status here is what made
+    // a button press feel as slow as a page load.
+    if (fresh) updateServiceStatuses([fresh]);
+    else await refreshOne(id);
+  }
+}
+
+async function refreshOne(id) {
+  try {
+    const res = await fetch(`${API}/api/status?app=${encodeURIComponent(id)}`, {cache: 'no-store'});
+    const data = await res.json();
+    if (data.services) updateServiceStatuses(data.services);
+  } catch (e) {
     await refresh();
   }
 }
@@ -1469,8 +1487,14 @@ async function refresh() {
     btn.classList.remove('spinning');
   }
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(refresh, 30000);
+  // A hidden tab does not poll at all; visibilitychange refreshes on return.
+  if (!document.hidden) refreshTimer = setTimeout(refresh, 30000);
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(refreshTimer);
+  else refresh();
+});
 
 /* ------------------------------------------------------------- shortcuts */
 

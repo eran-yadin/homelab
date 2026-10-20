@@ -126,10 +126,34 @@ is_apply() { [ "${HOMELAB_APPLY:-0}" = 1 ]; }
 DK=()
 dk_resolve() {
     DK=()
+    # `status` over many apps resolves once and hands the answer down, instead
+    # of every app paying ~100 ms for its own `docker info`. See status_prefetch.
+    case "${HOMELAB_DK:-}" in
+        docker) DK=(docker); return 0 ;;
+        sudo)   DK=($SUDO docker); return 0 ;;
+        none)   return 1 ;;
+    esac
     have docker || return 1
     if docker info >/dev/null 2>&1; then DK=(docker); return 0; fi
     if [ -n "$SUDO" ] && $SUDO docker info >/dev/null 2>&1; then DK=($SUDO docker); return 0; fi
     return 1
+}
+
+# For a status run over many apps: resolve docker once, and take one `docker ps`
+# snapshot that every app's status filters by its project label, rather than
+# 22 processes each asking the daemon the same two questions. Read-only and
+# short-lived, so the snapshot cannot go stale in any way that matters.
+status_prefetch() {
+    if dk_resolve; then
+        if [ "${DK[0]}" = docker ]; then HOMELAB_DK=docker; else HOMELAB_DK=sudo; fi
+        HOMELAB_PS_SNAPSHOT="$(mktemp)"
+        "${DK[@]}" ps -a --format '{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.service"}}|{{.State}}|{{.Status}}' \
+            > "$HOMELAB_PS_SNAPSHOT" 2>/dev/null || true
+        export HOMELAB_PS_SNAPSHOT
+    else
+        HOMELAB_DK=none
+    fi
+    export HOMELAB_DK
 }
 
 # Why can't we talk to it? Used for error messages that actually help.
