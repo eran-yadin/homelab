@@ -2,6 +2,12 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.5.0 - 2026-10-20
+
+- hub: listens to `docker events` (container start/stop/die/destroy/health). The app a container belongs to is re-read within ~2 s of the change, debounced so a multi-container `up` re-reads once; a container with no compose label triggers a full refresh. Reconnects with backoff if docker restarts
+- hub: with the event stream up, background polling drops to every 2 minutes, kept as the safety net for what emits no docker event (systemd apps: amp, netmon, cockpit); without it, every 30 s as before
+- page: polls the cache every 5 s (it is cheap now), so a change shows within seconds; auto-refreshes are quiet (no spinner, one toast if the hub is unreachable). Tailscale lookup cached for 30 s
+
 ## v1.4.0 - 2026-10-20
 
 - hub: statuses come from a cache kept by one background thread (every 30 s), so `/api/status` answers in milliseconds instead of ~5.6 s, and all open tabs share one refresh. With no page asking for 2 minutes the thread stops running status at all
