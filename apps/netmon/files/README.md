@@ -71,17 +71,37 @@ journalctl -u netmon -f                 # live logs
 journalctl -u netmon -n 50              # last 50 lines
 ```
 
+## Web UI
+
+`http://<server>:8095` (or `netmon.nuc` through caddy). Everything the report
+tool does, in a browser: a dashboard with a verdict (is the loss in the house or
+at the ISP?), a timeline, the hour-of-day heatmap, bursts, latency percentiles
+and spikes, CSV export with the same columns as `--csv`, and an mtr path test
+that only runs when you press the button. While netmon is stopped it shows the
+data up to the last sample and offers a start button.
+
+How it fits together:
+
+| piece | runs as | does |
+|---|---|---|
+| `netmon-web.service` (`/opt/netmon/web/server.py`) | `netmon` | serves the page, reads the db **read-only** (it must be the `netmon` user: reading a WAL db needs write access to its `-shm` file) |
+| `/var/lib/netmon/settings.env` | | targets, interval, timeout, retention saved from the UI. `netmon.service` reads it with `EnvironmentFile=` and it overrides the unit's own values |
+| `/var/lib/netmon/request` | | one word, `start`, `stop` or `apply`, written by the UI |
+| `netmon-control.path` → `netmon-control.service` (`/opt/netmon/netmon-control`) | root | wakes on a new request and starts, stops or try-restarts `netmon.service`. Nothing else; unknown words are ignored |
+
+So the UI never needs sudo, and the only root code is a 20-line script that
+knows three words. Requests are limited to one per 3 seconds.
+
+The web process is capped at 128 MB and 20% CPU. Day-sized queries take about
+a second on the NUC and are cached for 25 s; the dashboard refreshes every 30 s.
+
 ## Changing the targets
 
-Edit the service file:
+From the web UI's **settings** tab. The **path test** tab suggests an
+`isp_edge` (the first hop past your router that answers) with a button to use it.
 
-```bash
-sudo nano /etc/systemd/system/netmon.service
-# Find: Environment=NETMON_TARGETS=...
-# Format: name=ip,name=ip,name=ip
-sudo systemctl daemon-reload
-sudo systemctl restart netmon
-```
+By hand, edit `/var/lib/netmon/settings.env` (same `NAME=value` lines as the
+unit) and restart netmon. Values in the unit itself are only the defaults.
 
 ## Data retention
 
@@ -99,7 +119,7 @@ sudo -u netmon sqlite3 /var/lib/netmon/netmon.db \
 
 ## Disk usage
 
-About 100 bytes per row. With 4 targets × 1 ping/sec × 86400 sec/day = 345,600 rows/day ≈ **35 MB/day** or **~1 GB/month**. Well within the NUC's storage.
+About 92 bytes per row including indexes (measured: 270 MB for 2.94M rows). With 4 targets × 1 ping/sec × 86400 sec/day = 345,600 rows/day ≈ **35 MB/day** or **~1 GB/month**. Well within the NUC's storage.
 
 ## Hardening / security
 

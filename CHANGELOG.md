@@ -2,6 +2,15 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.7.0 - 2026-10-21
+
+- netmon: a web UI on port 8095 (`netmon.nuc` through caddy, and the hub card's Open button). Dashboard with per-target loss, average/p95 and a sparkline, plus a verdict line (LAN clean, loss past the router, dead targets); timeline with gaps where netmon was not running; loss by hour of day; bursts; latency percentiles, jitter and the worst spikes; CSV export with the same columns as `netmon-report --csv`; and an mtr path test that runs only when asked and suggests an `isp_edge`. While the monitor is stopped it says so, shows the data up to the last sample, and has a start button
+- netmon: targets, interval, timeout and retention are editable from the UI. They are saved to `/var/lib/netmon/settings.env`, which `netmon.service` reads with `EnvironmentFile=`; saving restarts a running monitor. The web process stays unprivileged: start/stop/apply go through `netmon-control.path`, a root helper that knows those three words and nothing else. Input is validated (names `a-z0-9_`, addresses must be an IP or host name, so nothing can smuggle another variable into the env file)
+- netmon: `update` on a box whose targets were hand-edited into the unit carries them into `settings.env` first, instead of resetting them to the detected defaults. A fresh install also detects `isp_edge` (the first hop past the router that answers, which skips a silent CGNAT hop)
+- engine: `extra_units=` for kind=systemd -- companion units that start, stop, update and delete with the main one. State is still the main unit's; a companion down while it runs reads `degraded`. `status` reports `extras_up`
+- fix: a dry-run install of a compose app on a host with no docker yet failed silently at `start`. With docker unresolved, the foreign-stack check ran the system `ps` instead of `docker ps`, and pipefail ended the script with no message
+- testenv forwards 8095; conformance drives the netmon UI end to end (stop/start from the page, settings applied to the running process, an injected setting refused, purge removes every unit)
+
 ## v1.6.0 - 2026-10-20
 
 - hub: every action it runs is recorded -- command, exit code, timing, the full terminal output (stderr and stdout interleaved, colours stripped, capped at 256 KB) and the `err` lines pulled out of it. The last 50 are kept in `/var/lib/homelab-hub/runs/` and survive a hub restart. `GET /api/runs`, `GET /api/runs/<id>`

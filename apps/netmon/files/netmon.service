@@ -36,6 +36,9 @@ Environment=NETMON_RETENTION_DAYS=30
 # gateway = your router's LAN IP (from `ip route` -> default via X)
 # isp_edge = the first hop OUTSIDE your house from pathping (the 100.x.x.x one)
 Environment=NETMON_TARGETS=gateway=10.0.0.138,isp_edge=100.76.159.254,google_dns=8.8.8.8,cloudflare=1.1.1.1
+# netmon web writes this file; its values override the lines above. The '-'
+# means a missing file is fine (nothing has been changed from the web yet).
+EnvironmentFile=-/var/lib/netmon/settings.env
 
 StandardOutput=journal
 StandardError=journal

@@ -1,0 +1,36 @@
+[Unit]
+Description=netmon web - browser front end for netmon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/netmon/venv/bin/python /opt/netmon/web/server.py
+Restart=always
+RestartSec=5
+
+# Same user as the monitor: a WAL database can only be read by someone who may
+# write its -shm file, and settings.env / request live in the same directory.
+User=netmon
+Group=netmon
+
+MemoryMax=128M
+CPUQuota=20%
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/netmon
+# mtr (the path test) needs raw sockets, like ping does for the monitor
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+Environment=NETMON_DB=/var/lib/netmon/netmon.db
+Environment=NETMON_WEB_PORT=8095
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

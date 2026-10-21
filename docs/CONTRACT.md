@@ -112,6 +112,7 @@ the hub.
 | `detect` | — | space-separated presence probes (below) |
 | `needs_ram_mb` / `needs_disk_mb` | `0` | checked by `install` before anything changes: more RAM than the host has is a warning, more disk than is free is a stop |
 | `unit` | `<name>.service` | kind=systemd: the unit |
+| `extra_units` | — | kind=systemd: companion units (a web UI, a `.path` trigger) that start, stop, update and delete with `unit`. The app's state is still `unit`'s, but a companion that is down while it runs reads as `degraded`. A `.path` unit's same-named `.service` is removed with it |
 | `backup_paths` | — | kind=systemd: paths to archive |
 | `purge_paths` | — | kind=systemd: paths removed by `--purge` |
 | `purge_users` | — | kind=systemd: system users removed by `--purge` |

@@ -281,8 +281,13 @@ _refuse_foreign_stack() {
     # file would hand a running database a freshly generated password and a
     # different volume layout. Compose records the file it was created from;
     # compare it.
+    #
+    # No docker yet (a dry-run install on a fresh box): nothing can exist, and
+    # with DK empty the line below would run the system `ps`, fail, and under
+    # pipefail + set -e end the script with no message at all.
+    if [ "${#DK[@]}" -eq 0 ]; then return 0; fi
     existing_cfg="$("${DK[@]}" ps -a --filter "label=com.docker.compose.project=$APP_NAME" \
-        --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1)"
+        --format '{{.Label "com.docker.compose.project.config_files"}}' 2>/dev/null | head -1 || true)"
     expected_cfg="$(_compose_files_csv)"
     # Compare on identity, not on the recorded path string: same files under a
     # different engine root, or in a different order, are still our files. See

@@ -98,9 +98,11 @@ not a default:
 
 That exact sequence was rehearsed in the VM against the real 203 documents.
 
-**netmon** has been stopped since 2026-08-06 and has a 180 MB unmerged WAL
-beside a 259 MB database. Starting it will replay and checkpoint that. Left for
-its owner.
+**netmon** has a web UI on :8095 since v1.7.0 (dashboard, timeline, hourly
+heatmap, bursts, latency, mtr path test, and settings that restart the monitor
+without sudo). On nucserver it ran 2026-10-13 to 10-20 and was stopped on
+10-20; its `isp_edge` target is still the old network's hop and never answers.
+Fix it from the path test tab.
 
 ## The store
 

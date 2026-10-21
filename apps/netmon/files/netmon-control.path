@@ -1,0 +1,8 @@
+[Unit]
+Description=netmon - watch for start/stop/apply requests from netmon web
+
+[Path]
+PathChanged=/var/lib/netmon/request
+
+[Install]
+WantedBy=paths.target

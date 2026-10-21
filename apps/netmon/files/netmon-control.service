@@ -1,0 +1,10 @@
+[Unit]
+Description=netmon - act on a request from netmon web
+# The web allows one request per 3 s (20/min). Stay above that: a service that
+# hits its start limit takes the .path unit down with it, and the buttons die.
+StartLimitIntervalSec=60
+StartLimitBurst=30
+
+[Service]
+Type=oneshot
+ExecStart=/opt/netmon/netmon-control

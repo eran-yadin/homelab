@@ -15,6 +15,11 @@ VERB="${1:-}"; [ -n "$VERB" ] || die "systemd kind: verb required"
 shift || true
 
 UNIT="${APP_UNIT:-$APP_NAME.service}"
+# Companion units that live and die with the main one (netmon's web UI and its
+# .path trigger). start/stop/update/delete act on all of them; the app's state
+# is still the main unit's. A .path unit's same-named .service is what it
+# activates, so delete removes that file too.
+EXTRA="${APP_EXTRA_UNITS:-}"
 
 need_systemd() {
     have systemctl || die "$APP_NAME needs systemd, which this host does not use"
@@ -23,6 +28,11 @@ need_systemd() {
 unit_exists()  { systemctl cat "$UNIT" >/dev/null 2>&1; }
 unit_active()  { systemctl is-active  --quiet "$UNIT" 2>/dev/null; }
 unit_enabled() { systemctl is-enabled --quiet "$UNIT" 2>/dev/null; }
+is_active()    { systemctl is-active  --quiet "$1" 2>/dev/null; }
+
+# extras that are installed but not running / running
+extras_down() { local u; for u in $EXTRA; do is_active "$u" || printf '%s ' "$u"; done; }
+extras_up()   { local u; for u in $EXTRA; do is_active "$u" && printf '%s ' "$u"; done; return 0; }
 
 case "$VERB" in
 
@@ -51,23 +61,37 @@ start)
         fi
         die "$APP_NAME: $UNIT is not installed (run: homelab install $APP_NAME)"
     fi
-    if unit_active; then
+    # An engine update can add companions to an app.conf before the files
+    # exist on this box; only re-running download installs them.
+    for u in $EXTRA; do
+        if ! systemctl cat "$u" >/dev/null 2>&1; then
+            if ! is_apply; then warn "$APP_NAME: $u does not exist yet (a real run installs it first)"; continue; fi
+            die "$APP_NAME: $u is not installed yet (run: homelab update $APP_NAME --apply)"
+        fi
+    done
+    down="$(extras_down)"
+    if unit_active && [ -z "$down" ]; then
         ok "$APP_NAME: already running"
         exit $EX_NOOP
     fi
     preflight_conflicts
-    preflight_ports ${APP_PORTS:-}
-    log "$APP_NAME: starting $UNIT"
-    run $SUDO systemctl enable --now "$UNIT"
+    # A companion that is already up holds the app's own port (netmon's web UI
+    # stays up while the monitor is stopped); that is not a conflict.
+    if [ -z "$(extras_up)" ]; then preflight_ports ${APP_PORTS:-}; fi
+    log "$APP_NAME: starting $UNIT${EXTRA:+ $EXTRA}"
+    # shellcheck disable=SC2086
+    run $SUDO systemctl enable --now "$UNIT" $EXTRA
     ok "$APP_NAME: started"
     ;;
 
 stop)
     need_systemd
     if ! unit_exists; then ok "$APP_NAME: not installed"; exit $EX_NOOP; fi
-    if ! unit_active; then ok "$APP_NAME: already stopped"; exit $EX_NOOP; fi
-    log "$APP_NAME: stopping $UNIT"
-    run $SUDO systemctl stop "$UNIT"
+    up="$(extras_up)"
+    if ! unit_active && [ -z "$up" ]; then ok "$APP_NAME: already stopped"; exit $EX_NOOP; fi
+    log "$APP_NAME: stopping $UNIT${EXTRA:+ $EXTRA}"
+    # shellcheck disable=SC2086
+    run $SUDO systemctl stop "$UNIT" $EXTRA
     ok "$APP_NAME: stopped"
     ;;
 
@@ -83,9 +107,20 @@ update)
     fi
     log "$APP_NAME: reloading unit and restarting"
     run $SUDO systemctl daemon-reload
+    # Restart only what was running. A companion the app gained in this update
+    # (netmon's web UI, the first time) starts with the main unit.
+    restart="$(extras_up)"
     if unit_active; then
-        run $SUDO systemctl restart "$UNIT"
+        for u in $EXTRA; do
+            if ! is_active "$u"; then run $SUDO systemctl enable --now "$u"; fi
+        done
+        # shellcheck disable=SC2086
+        run $SUDO systemctl restart "$UNIT" $restart
         ok "$APP_NAME: restarted"
+    elif [ -n "$restart" ]; then
+        # shellcheck disable=SC2086
+        run $SUDO systemctl restart $restart
+        ok "$APP_NAME: restarted ${restart% } ($UNIT is stopped, leaving it stopped)"
     else
         ok "$APP_NAME: unit reloaded (app is stopped, leaving it stopped)"
     fi
@@ -101,7 +136,12 @@ delete)
     purge=0
     if [ "${1:-}" = "--purge" ]; then purge=1; fi
     if ! unit_exists; then ok "$APP_NAME: nothing to delete"; exit $EX_NOOP; fi
-    log "$APP_NAME: removing $UNIT"
+    log "$APP_NAME: removing $UNIT${EXTRA:+ $EXTRA}"
+    for u in $EXTRA; do
+        if systemctl cat "$u" >/dev/null 2>&1; then run $SUDO systemctl disable --now "$u"; fi
+        run $SUDO rm -f "/etc/systemd/system/$u"
+        case "$u" in *.path) run $SUDO rm -f "/etc/systemd/system/${u%.path}.service" ;; esac
+    done
     run $SUDO systemctl disable --now "$UNIT"
     run $SUDO rm -f "/etc/systemd/system/$UNIT"
     run $SUDO systemctl daemon-reload
@@ -141,9 +181,13 @@ status)
         fi
     fi
 
+    down="$(extras_down)"
     if [ "$probe" = up ]; then
         state=running
         health=healthy
+    elif unit_active && [ -n "$down" ]; then
+        state=degraded
+        health="${down% } not running"
     elif unit_active; then
         state=running
         health=healthy
@@ -154,9 +198,11 @@ status)
         state=stopped
         health=none
     fi
+    more=()
+    if [ -n "$EXTRA" ]; then up="$(extras_up)"; more=("extras_up=${up% }"); fi
     emit_status "$state" true \
         unit="$UNIT" enabled="$enabled" substate="$sub" health="$health" \
-        ports="${APP_PORTS:-}"
+        ports="${APP_PORTS:-}" "${more[@]}"
     ;;
 
 backup)
@@ -170,9 +216,11 @@ backup)
         log "$APP_NAME: archiving $p"
         run_sh "$SUDO tar -czf '$dest/path-$n.tar.gz' -C '$(dirname "$p")' '$(basename "$p")'"
     done
-    if unit_exists; then
-        run_sh "systemctl cat '$UNIT' > '$dest/$UNIT' 2>/dev/null || true"
-    fi
+    for u in $UNIT $EXTRA; do
+        if systemctl cat "$u" >/dev/null 2>&1; then
+            run_sh "systemctl cat '$u' > '$dest/$u' 2>/dev/null || true"
+        fi
+    done
     ok "$APP_NAME: backed up to $dest"
     ;;
 
