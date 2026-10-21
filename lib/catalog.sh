@@ -24,7 +24,7 @@ app_load() {
     kind=compose; title="$name"; category=misc; desc=""
     ports=""; needs_ram_mb=0; needs_disk_mb=0; stateful=0
     detect=""; requires=""; homepage=""; notes=""
-    unit=""; backup_paths=""; purge_paths=""; purge_users=""; oneshot=""; health_url=""
+    unit=""; extra_units=""; backup_paths=""; purge_paths=""; purge_users=""; oneshot=""; health_url=""
     conflicts=""; adopted=0; container=""; bulk_volumes=""
 
     # shellcheck disable=SC1090
@@ -35,7 +35,7 @@ app_load() {
     APP_DISK="$needs_disk_mb"; APP_STATEFUL="$stateful"
     APP_DETECT="$detect"; APP_REQUIRES="$requires"
     APP_HOMEPAGE="$homepage"; APP_NOTES="$notes"
-    APP_UNIT="$unit"; APP_BACKUP_PATHS="$backup_paths"; APP_PURGE_PATHS="$purge_paths"
+    APP_UNIT="$unit"; APP_EXTRA_UNITS="$extra_units"; APP_BACKUP_PATHS="$backup_paths"; APP_PURGE_PATHS="$purge_paths"
     APP_PURGE_USERS="$purge_users"; APP_ONESHOT="$oneshot"; APP_HEALTH_URL="$health_url"
     APP_CONFLICTS="$conflicts"; APP_ADOPTED="$adopted"; APP_CONTAINER="$container"
     APP_BULK_VOLUMES="$bulk_volumes"
@@ -105,7 +105,7 @@ app_run_verb() {
     HOMELAB_DEBUG="${HOMELAB_DEBUG:-0}" \
     APP_NAME="$APP_NAME" APP_DIR="$APP_DIR" APP_STATE="$APP_STATE" \
     APP_KIND="$APP_KIND" APP_TITLE="$APP_TITLE" APP_PORTS="$APP_PORTS" \
-    APP_STATEFUL="$APP_STATEFUL" APP_UNIT="$APP_UNIT" \
+    APP_STATEFUL="$APP_STATEFUL" APP_UNIT="$APP_UNIT" APP_EXTRA_UNITS="$APP_EXTRA_UNITS" \
     APP_BACKUP_PATHS="$APP_BACKUP_PATHS" APP_PURGE_PATHS="$APP_PURGE_PATHS" \
     APP_PURGE_USERS="$APP_PURGE_USERS" APP_ONESHOT="$APP_ONESHOT" APP_HEALTH_URL="$APP_HEALTH_URL" \
     APP_CONFLICTS="$APP_CONFLICTS" APP_ADOPTED="$APP_ADOPTED" \

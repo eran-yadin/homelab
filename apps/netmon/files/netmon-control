@@ -1,0 +1,22 @@
+#!/bin/sh
+# netmon-control - run as root by netmon-control.service when netmon web
+# writes /var/lib/netmon/request (watched by netmon-control.path).
+#
+# This is the only privileged step in the web UI. It reads one word and acts on
+# netmon.service and nothing else; anything it does not recognise is ignored.
+set -u
+REQ=/var/lib/netmon/request
+UNIT=netmon.service
+
+# The directory belongs to the netmon user. Never follow a link it planted.
+[ -f "$REQ" ] && [ ! -L "$REQ" ] || exit 0
+action="$(head -c 16 "$REQ" | tr -cd 'a-z')"
+
+case "$action" in
+    start) systemctl start "$UNIT" ;;
+    stop)  systemctl stop "$UNIT" ;;
+    # settings.env changed: pick it up, but leave a stopped monitor stopped
+    apply) systemctl try-restart "$UNIT" ;;
+    *)     echo "netmon-control: ignoring request '$action'" >&2; exit 0 ;;
+esac
+echo "netmon-control: $action -> $(systemctl is-active "$UNIT")"

@@ -55,8 +55,11 @@ scripts at all**. Then test it in the VM, never on the NUC first.
   from `~/paperless/docker-compose.yml`; the engine refuses to recreate
   containers built from a different compose file, so it is safe from us. Taking
   it over means backup → bring the old stack down → restore → start.
-- **netmon is stopped** since 2026-08-06 and has a 180 MB unmerged WAL beside a
-  259 MB database. The user has plans for it — leave it alone.
+- **netmon** has a web UI (`netmon-web.service`, :8095) and a root-side
+  helper (`netmon-control.path`) declared as `extra_units`. Its settings live in
+  `/var/lib/netmon/settings.env`, not the unit; `download.sh` carries a
+  hand-edited unit's values over the first time. Stopped on the NUC since
+  2026-10-20; `isp_edge` there is the old network's dead hop.
 
 ## Gotchas already paid for
 
@@ -82,6 +85,11 @@ Each of these cost a debugging cycle. Do not rediscover them.
   output on every host without the allow-apply marker.
 - **`tr -dc … </dev/urandom | head -c N`** kills `tr` with SIGPIPE; with
   `pipefail` and `set -e` the script aborts with no message at all.
+- **A WAL-mode SQLite db cannot be read by a user who cannot write its
+  directory**, even with `mode=ro`: the reader has to create/update `-shm`.
+  netmon's web UI runs as the `netmon` user for exactly this reason.
+- **`"${DK[@]}" ps` with docker unresolved runs the system `ps`.** DK is empty
+  until docker is found; guard with `[ "${#DK[@]}" -eq 0 ]` first.
 - **The test VM gives its user blanket NOPASSWD sudo.** That has hidden two real
   permissions bugs. It is a faithful machine but a misleading user.
 

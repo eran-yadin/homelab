@@ -355,6 +355,88 @@ test_install_ram_warning() {
     else fail "ram: install blocked or failed (rc=$rc)" "$(printf '%s' "$out" | tail -3)"; fi
 }
 
+# netmon's web UI (v1.7.0): the companion units come and go with the app, the
+# UI can stop and start the monitor and change its settings without sudo, it
+# refuses settings that would reach the unit unvalidated, and an update keeps
+# targets that were hand-edited into an older unit.
+test_netmon_web() {
+    local app=netmon W=http://127.0.0.1:8095 J='Content-Type: application/json' i out pid env
+    printf '\n%s=== %s (web UI, control, settings) ===%s\n' "$D" "$app" "$Z"
+
+    verb "$app" download;              expect_ok "web: download"
+    verb "$app" start;                 expect_ok "web: start"
+    for i in 1 2 3 4 5 6 7 8 9 10; do curl -fs "$W/api/status" >/dev/null 2>&1 && break; sleep 1; done
+    out="$(curl -fs "$W/api/status" || true)"
+    if printf '%s' "$out" | grep -q '"state": "active"'; then pass "web: answers on :8095 and sees netmon running"
+    else fail "web: /api/status" "$out"; fi
+    if curl -fs "$W/" | grep -q '<title>netmon</title>'; then pass "web: serves the page"
+    else fail "web: page not served"; fi
+    assert_json "web: status with the UI up" "$(status_json "$app")" '^running$'
+
+    # stop the monitor from the UI: no sudo, the .path unit does it
+    curl -fs -H "$J" -d '{"action":"stop"}' "$W/api/control" >/dev/null || true
+    for i in 1 2 3 4 5 6 7 8; do systemctl is-active --quiet netmon.service || break; sleep 1; done
+    if ! systemctl is-active --quiet netmon.service && systemctl is-active --quiet netmon-web.service; then
+        pass "web: stop from the UI stops the monitor, the UI stays up"
+    else fail "web: UI stop" "netmon=$(systemctl is-active netmon.service) web=$(systemctl is-active netmon-web.service)"; fi
+    assert_json "web: status with only the UI up" "$(status_json "$app")" '^stopped$'
+
+    # the hub's start brings the monitor back even though the UI holds :8095
+    verb "$app" start;                 expect_ok "web: start while the UI holds the port"
+    if systemctl is-active --quiet netmon.service; then pass "web: monitor running again"
+    else fail "web: monitor did not start"; fi
+
+    # settings: rejected input never reaches the file
+    sleep 3
+    out="$(curl -s -o /dev/null -w '%{http_code}' -H "$J" \
+        -d '{"targets":[{"name":"a","host":"1.1.1.1\nLD_PRELOAD=/tmp/x.so"}],"interval":1,"timeout":2,"retention_days":30}' "$W/api/settings" || true)"
+    if [ "$out" = 400 ] && ! sudo grep -qs LD_PRELOAD /var/lib/netmon/settings.env; then pass "web: injected setting refused (400)"
+    else fail "web: injected setting not refused (HTTP $out)"; fi
+
+    pid="$(systemctl show -p MainPID --value netmon.service)"
+    out="$(curl -s -H "$J" -d '{"targets":[{"name":"gateway","host":"10.100.0.2"},{"name":"cflare","host":"1.1.1.1"}],"interval":2,"timeout":1,"retention_days":7}' "$W/api/settings" || true)"
+    for i in 1 2 3 4 5 6 7 8; do
+        [ "$(systemctl show -p MainPID --value netmon.service)" != "$pid" ] && systemctl is-active --quiet netmon.service && break; sleep 1
+    done
+    env="$(sudo cat "/proc/$(systemctl show -p MainPID --value netmon.service)/environ" 2>/dev/null | tr '\0' '\n' || true)"
+    if printf '%s\n' "$env" | grep -qx 'NETMON_TARGETS=gateway=10.100.0.2,cflare=1.1.1.1' \
+       && printf '%s\n' "$env" | grep -qx 'NETMON_INTERVAL=2.0'; then
+        pass "web: saved settings restart netmon with them"
+    else fail "web: settings not applied" "$out / $(printf '%s' "$env" | grep NETMON_ | tr '\n' ' ')"; fi
+
+    out="$(curl -s -o /dev/null -w '%{http_code}' -H "$J" -d '{"host":"1.1.1.1","cycles":1}' "$W/api/mtr" || true)"
+    case "$out" in 200|500) pass "web: path test answers (HTTP $out; SLIRP may hide hops)" ;;
+                   *) fail "web: path test HTTP $out" ;; esac
+    if curl -fs "$W/api/csv?kind=minute&hours=1" | head -1 | grep -q '^timestamp,target,packets'; then pass "web: csv export"
+    else fail "web: csv export"; fi
+
+    # update keeps the web settings and restarts what was running
+    verb "$app" update;                expect_ok "web: update"
+    if sudo grep -q '^NETMON_TARGETS=gateway=10.100.0.2,cflare=1.1.1.1' /var/lib/netmon/settings.env \
+       && systemctl is-active --quiet netmon-web.service; then pass "web: update kept settings.env, UI back up"
+    else fail "web: update lost settings or the UI"; fi
+
+    # an older box: targets hand-edited into the unit, no settings.env yet
+    sudo rm -f /var/lib/netmon/settings.env
+    sudo sed -i 's|^Environment=NETMON_TARGETS=.*|Environment=NETMON_TARGETS=gateway=10.100.0.2,isp_edge=10.100.0.3|' /etc/systemd/system/netmon.service
+    sudo systemctl daemon-reload
+    verb "$app" update;                expect_ok "web: update on a pre-web box"
+    if sudo grep -q '^NETMON_TARGETS=gateway=10.100.0.2,isp_edge=10.100.0.3$' /var/lib/netmon/settings.env; then
+        pass "web: hand-edited targets carried into settings.env"
+    else fail "web: hand-edited targets lost" "$(sudo cat /var/lib/netmon/settings.env 2>&1)"; fi
+
+    set +e
+    OUT="$(printf '%s\n' "$app" | "$HL" delete "$app" --purge --apply 2>&1)"; RC=$?
+    set -e
+    expect_ok "web: delete --purge"
+    local left=""
+    for u in netmon.service netmon-web.service netmon-control.path netmon-control.service; do
+        if [ -e "/etc/systemd/system/$u" ]; then left="$left $u"; fi
+    done
+    if [ -z "$left" ] && ! curl -fs "$W/api/status" >/dev/null 2>&1; then pass "web: purge removed every unit, :8095 closed"
+    else fail "web: purge left:${left:- (port still open)}"; fi
+}
+
 APPS="${1:-}"
 if [ -z "$APPS" ]; then
     APPS="$(for d in apps/*/; do [ -f "$d/app.conf" ] && basename "$d"; done)"
@@ -362,6 +444,8 @@ fi
 
 printf '%shomelab contract conformance%s\n' "$D" "$Z"
 for a in $APPS; do test_app "$a"; done
+
+case " $APPS " in *" netmon "*) test_netmon_web ;; esac
 
 # override-capable apps present in this run also go through the override guard
 for pair in $OVERRIDE_APPS; do

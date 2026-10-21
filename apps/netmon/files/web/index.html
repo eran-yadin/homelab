@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netmon</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* one terminal window: status line, a row of "commands", one pane at a time. Dark on purpose. */
+:root {
+  --bg: #050806;
+  --panel: #0a110c;
+  --line: #1c3b24;
+  --fg: #9fe8b0;
+  --dim: #4f7d5a;
+  --hot: #39ff6a;
+  --warn: #ffb000;
+  --bad: #ff4d4d;
+  --mono: "IBM Plex Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+  --crt: "VT323", "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--mono);
+  padding: 20px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px));
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; }
+h1 { font: 400 44px/1 var(--crt); color: var(--hot); margin: 0; text-shadow: 0 0 8px rgba(57,255,106,.45); letter-spacing: .02em; }
+h1 .cur { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.prompt { color: var(--dim); font-size: 13px; }
+.status { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; align-items: center; }
+.pill { padding: 1px 8px; border: 1px solid currentColor; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+.ok { color: var(--hot); } .wn { color: var(--warn); } .bd { color: var(--bad); } .dm { color: var(--dim); }
+.banner { border: 1px solid var(--bad); color: var(--bad); padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; background: rgba(255,77,77,.06); }
+.banner.wn { border-color: var(--warn); color: var(--warn); background: rgba(255,176,0,.06); }
+nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+nav button { font: inherit; color: var(--dim); background: none; border: 1px solid transparent; border-bottom: 0; padding: 6px 12px; cursor: pointer; }
+nav button:hover { color: var(--fg); }
+nav button[aria-selected="true"] { color: var(--hot); border-color: var(--line); background: var(--panel); }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 1px solid var(--hot); outline-offset: 2px; }
+.win { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px 16px; position: relative; min-width: 0; }
+.win > .t { position: absolute; top: -10px; left: 12px; background: var(--bg); padding: 0 6px; color: var(--dim); font-size: 12px; letter-spacing: .06em; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.tile { display: grid; gap: 4px; }
+.tile .name { display: flex; justify-content: space-between; gap: 8px; }
+.tile .big { font: 400 40px/1 var(--crt); font-variant-numeric: tabular-nums; }
+.tile .sub { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.ctl { font: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--line); padding: 4px 8px; min-width: 0; }
+.btn { font: inherit; background: none; color: var(--hot); border: 1px solid var(--hot); padding: 4px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn:hover:not(:disabled) { background: rgba(57,255,106,.1); }
+.btn:disabled { opacity: .4; cursor: wait; }
+.btn.warn { color: var(--warn); border-color: var(--warn); }
+.btn.bad { color: var(--bad); border-color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: right; padding: 4px 10px; border-bottom: 1px dotted var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--dim); font-weight: 500; }
+svg text { fill: var(--dim); font: 11px var(--mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; }
+.legend i { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.heat { display: grid; grid-template-columns: 96px repeat(24, minmax(14px, 1fr)); gap: 2px; font-size: 11px; min-width: 520px; }
+.heat div { height: 20px; }
+.heat .lb { color: var(--dim); height: auto; overflow: hidden; text-overflow: ellipsis; }
+pre { margin: 0; font: 13px/1.45 var(--mono); white-space: pre; }
+.form { display: grid; gap: 10px; grid-template-columns: max-content minmax(0, 1fr); align-items: center; max-width: 680px; }
+.form > label { color: var(--dim); }
+.tg { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr) auto; gap: 6px; }
+.note { color: var(--dim); font-size: 12px; }
+.empty { color: var(--dim); padding: 12px 0; }
+.msg { font-size: 13px; }
+@media (max-width: 520px) { .form { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
+@media (prefers-reduced-motion: reduce) { h1 .cur { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="prompt" id="prompt">netmon --web</div>
+      <h1>NETMON<span class="cur">_</span></h1>
+    </div>
+    <div class="status">
+      <span id="status" class="status"></span>
+      <button class="btn bad" type="button" id="stopBtn" hidden>stop</button>
+      <button class="btn" type="button" id="startBtn" hidden>start</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden>
+    <span id="bannerText"></span>
+    <label class="row" style="gap:6px"><input type="checkbox" id="anchor" checked> show the data up to the last sample</label>
+  </div>
+
+  <nav role="tablist" id="tabs">
+    <button role="tab" type="button" data-p="dash" aria-selected="true">dashboard</button>
+    <button role="tab" type="button" data-p="time" aria-selected="false">timeline</button>
+    <button role="tab" type="button" data-p="hour" aria-selected="false">hourly</button>
+    <button role="tab" type="button" data-p="burst" aria-selected="false">bursts</button>
+    <button role="tab" type="button" data-p="lat" aria-selected="false">latency</button>
+    <button role="tab" type="button" data-p="mtr" aria-selected="false">path test</button>
+    <button role="tab" type="button" data-p="set" aria-selected="false">settings</button>
+  </nav>
+
+  <section data-pane="dash">
+    <div class="row" style="margin-bottom:14px">
+      <span class="dm">window</span>
+      <select class="ctl" id="dwin"><option value="1">1h</option><option value="12">12h</option><option value="24" selected>24h</option><option value="168">7d</option></select>
+      <span class="note" id="dnote"></span>
+    </div>
+    <div class="grid" id="tiles"><div class="empty">loading…</div></div>
+  </section>
+
+  <section data-pane="time" hidden class="win">
+    <span class="t">┤ rtt + loss ├</span>
+    <div class="row" style="margin-bottom:10px">
+      <span class="dm">window</span>
+      <select class="ctl" id="twin"><option value="1">1h</option><option value="12">12h</option><option value="24" selected>24h</option><option value="168">7d</option><option value="720">30d</option></select>
+      <span class="legend" id="legend"></span>
+    </div>
+    <div class="scroll"><svg id="chart" viewBox="0 0 1000 260" width="100%" style="min-width:560px" role="img" aria-label="round-trip time per target"></svg></div>
+    <div class="note">lines = average round-trip per bucket (capped at the axis). Red ticks under the axis = buckets with lost packets.</div>
+    <div class="row" style="margin-top:10px">
+      <a class="btn" id="csvMin" href="#">export csv (per minute)</a>
+      <a class="btn" id="csvHour" href="#">export csv (per hour)</a>
+      <span class="note">same columns as netmon-report --csv</span>
+    </div>
+  </section>
+
+  <section data-pane="hour" hidden class="win">
+    <span class="t">┤ loss % by hour of day ├</span>
+    <div class="row" style="margin-bottom:10px">
+      <span class="dm">over the last</span>
+      <select class="ctl" id="hwin"><option value="24">24h</option><option value="168" selected>7d</option><option value="720">30d</option></select>
+    </div>
+    <div class="scroll"><div class="heat" id="heat"></div></div>
+    <div class="note" style="margin-top:8px">dim green = clean · amber ≥ 0.2% · red ≥ 0.5% · blank = no data. Hover a cell for the number.</div>
+  </section>
+
+  <section data-pane="burst" hidden class="win">
+    <span class="t">┤ consecutive loss bursts ├</span>
+    <div class="row" style="margin-bottom:10px">
+      <span class="dm">at least</span><input class="ctl" id="bmin" type="number" value="3" min="2" style="width:70px">
+      <span class="dm">lost in a row, over</span>
+      <select class="ctl" id="bwin"><option value="1">1h</option><option value="24" selected>24h</option><option value="168">7d</option></select>
+      <span class="note" id="bnote"></span>
+    </div>
+    <div class="scroll"><table id="bursts"></table></div>
+  </section>
+
+  <section data-pane="lat" hidden>
+    <div class="row" style="margin-bottom:14px">
+      <span class="dm">window</span>
+      <select class="ctl" id="lwin"><option value="1">1h</option><option value="24" selected>24h</option><option value="168">7d</option></select>
+    </div>
+    <div class="grid">
+      <div class="win"><span class="t">┤ percentiles (ms) ├</span><div class="scroll"><table id="pct"></table></div>
+        <div class="note" style="margin-top:8px">p95/p99 is what games feel. Max is noise. Jitter = average change between consecutive pings.</div></div>
+      <div class="win"><span class="t">┤ worst spikes ├</span>
+        <div class="row" style="margin-bottom:8px"><span class="dm">over</span><input class="ctl" id="over" type="number" value="100" min="0" style="width:80px"><span class="dm">ms</span></div>
+        <div class="scroll"><table id="spikes"></table></div>
+        <div class="note" style="margin-top:8px">gateway spikes are usually the NUC being busy (paperless OCR), not the network.</div></div>
+    </div>
+  </section>
+
+  <section data-pane="mtr" hidden class="win">
+    <span class="t">┤ path test (mtr) ├</span>
+    <div class="row" style="margin-bottom:12px">
+      <label class="dm" for="mhost">host</label><input class="ctl" id="mhost" value="8.8.8.8" style="width:180px">
+      <label class="dm" for="mcyc">cycles</label><input class="ctl" id="mcyc" type="number" value="10" min="1" max="30" style="width:70px">
+      <button class="btn" type="button" id="mrun">run</button>
+    </div>
+    <div class="scroll"><pre id="mout" class="dm">idle. Runs only when you press "run" (about 1 s per cycle, one test at a time).</pre></div>
+    <div class="row" id="edgeRow" style="margin-top:12px" hidden>
+      <span class="msg" id="edgeText"></span>
+      <button class="btn warn" type="button" id="edgeUse">use as isp_edge</button>
+    </div>
+  </section>
+
+  <section data-pane="set" hidden class="win">
+    <span class="t">┤ /var/lib/netmon/settings.env ├</span>
+    <form class="form" id="setForm" autocomplete="off">
+      <label>targets</label>
+      <div style="display:grid;gap:6px;min-width:0" id="tgts"></div>
+      <span></span><div class="row"><button class="btn" type="button" id="addt">+ add target</button><span class="note">name = a-z 0-9 _ · address = IP or host name</span></div>
+      <label for="ival">interval (s)</label><input class="ctl" id="ival" type="number" step="0.5" min="0.5" max="60" required>
+      <label for="tout">timeout (s)</label><input class="ctl" id="tout" type="number" step="1" min="1" max="10" required>
+      <label for="ret">keep data (days)</label><input class="ctl" id="ret" type="number" min="1" max="90" required>
+      <span></span><div class="note" id="cost"></div>
+      <span></span><div class="row"><button class="btn" type="submit" id="save">save + restart netmon</button><span id="saved" class="msg"></span></div>
+    </form>
+  </section>
+</div>
+
+<script>
+// below this loss % a target counts as clean, on the tiles and in the verdict
+const LOSSY = 0.05;
+const COLORS = ["#39ff6a", "#5fd7ff", "#d7a6ff", "#ffd75f", "#ff8fa3", "#7fffd4", "#c0c0ff", "#ffa75f"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtT = ts => { const d = new Date(ts * 1000); return d.toLocaleDateString("sv-SE") + " " + d.toLocaleTimeString("en-GB"); };
+const fmtHM = ts => new Date(ts * 1000).toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+const fmtDH = ts => { const d = new Date(ts * 1000); return d.toLocaleDateString("en-GB", {day: "2-digit", month: "short"}) + " " + fmtHM(ts); };
+const ago = s => s < 90 ? Math.round(s) + "s" : s < 5400 ? Math.round(s / 60) + "m" : s < 172800 ? Math.round(s / 3600) + "h" : Math.round(s / 86400) + "d";
+const mb = b => b == null ? "?" : (b / 1048576).toFixed(0) + " MB";
+
+let ST = null;            // last /api/status
+let SETTINGS = null;      // last /api/settings
+let pane = "dash";
+const colorOf = {};
+function col(name) {
+  if (!(name in colorOf)) colorOf[name] = COLORS[Object.keys(colorOf).length % COLORS.length];
+  return colorOf[name];
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  let body = null;
+  try { body = await r.json(); } catch (e) { /* not json */ }
+  if (!r.ok) throw new Error((body && body.error) || ("HTTP " + r.status));
+  return body;
+}
+
+function stale() { return !ST || !ST.last_ts || ST.now - ST.last_ts > 120; }
+function endParam() { return stale() && $("anchor").checked ? "&end=last" : ""; }
+
+/* ---------------------------------------------------------------- status */
+async function refreshStatus() {
+  try { ST = await api("/api/status"); }
+  catch (e) { $("status").innerHTML = `<span class="pill bd">web error</span><span class="bd">${esc(e.message)}</span>`; return; }
+  const running = ST.state === "active";
+  const pill = running ? `<span class="pill ok">running</span>`
+    : ST.state === "activating" || ST.state === "deactivating" ? `<span class="pill wn">${esc(ST.state)}</span>`
+    : `<span class="pill bd">${esc(ST.state === "inactive" ? "stopped" : ST.state)}</span>`;
+  const parts = [pill];
+  if (running && ST.uptime_s != null) parts.push(`<span>up ${ago(ST.uptime_s)}</span>`);
+  if (ST.last_ts) parts.push(`<span class="dm">last sample ${ago(ST.now - ST.last_ts)} ago</span>`);
+  parts.push(`<span class="dm">db ${mb(ST.db_bytes)}${ST.rows != null ? " · " + (ST.rows / 1e6).toFixed(2) + "M rows" : ""}</span>`);
+  $("status").innerHTML = parts.join("");
+  $("startBtn").hidden = running || !ST.control;
+  $("stopBtn").hidden = !running || !ST.control;
+  $("prompt").textContent = `netmon@${location.hostname}:~$ netmon --web`;
+
+  const b = $("banner");
+  if (!ST.last_ts) {
+    b.hidden = false; b.className = "banner wn";
+    $("bannerText").textContent = running ? "[..] netmon is running but has not written any samples yet." : "[!!] netmon is stopped and there is no data yet. Press start.";
+  } else if (!running) {
+    b.hidden = false; b.className = "banner";
+    $("bannerText").textContent = `[!!] netmon.service is STOPPED. Last sample ${fmtT(ST.last_ts)}.`;
+  } else if (stale()) {
+    b.hidden = false; b.className = "banner wn";
+    $("bannerText").textContent = `[!!] netmon is running but the newest sample is ${ago(ST.now - ST.last_ts)} old.`;
+  } else {
+    b.hidden = true;
+  }
+}
+
+async function control(action) {
+  const btn = action === "start" ? $("startBtn") : $("stopBtn");
+  btn.disabled = true;
+  try {
+    await api("/api/control", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})});
+    for (let i = 0; i < 8; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      await refreshStatus();
+      if ((action === "start") === (ST.state === "active")) break;
+    }
+  } catch (e) {
+    $("status").insertAdjacentHTML("beforeend", `<span class="bd">${esc(e.message)}</span>`);
+  } finally { btn.disabled = false; }
+}
+
+/* ---------------------------------------------------------------- dashboard */
+function spark(points, c) {
+  const vals = points.map(p => p && p[0]).filter(v => v != null);
+  if (!vals.length) return `<svg viewBox="0 0 200 36" width="100%" height="36"><line x1="0" y1="18" x2="200" y2="18" stroke="#ff4d4d" stroke-dasharray="4 4"/></svg>`;
+  const s = vals.slice().sort((a, b) => a - b), top = Math.max(s[Math.floor(s.length * 0.95)] * 1.3, 1);
+  const n = points.length, xs = i => (i * 200 / Math.max(n - 1, 1)).toFixed(1);
+  let d = "", last = null, ticks = "", pen = false;
+  points.forEach((p, i) => {
+    if (p && p[1]) ticks += `<line x1="${xs(i)}" x2="${xs(i)}" y1="33" y2="36" stroke="#ff4d4d"/>`;
+    if (!p || p[0] == null) { pen = false; return; }   // no data: leave a gap
+    const y = (30 - Math.min(p[0] / top, 1) * 26).toFixed(1);
+    d += (pen ? "L" : "M") + xs(i) + " " + y; last = [xs(i), y]; pen = true;
+  });
+  return `<svg viewBox="0 0 200 36" width="100%" height="36" aria-hidden="true"><path d="${d}" fill="none" stroke="${c}" stroke-width="1.3"/>${last ? `<circle cx="${last[0]}" cy="${last[1]}" r="2.4" fill="${c}"/>` : ""}${ticks}</svg>`;
+}
+
+async function loadDash() {
+  const h = $("dwin").value;
+  let d;
+  try { d = await api(`/api/summary?hours=${h}${endParam()}`); }
+  catch (e) { $("tiles").innerHTML = `<div class="empty bd">${esc(e.message)}</div>`; return; }
+  $("dnote").textContent = d.since ? `${fmtDH(d.since)} → ${fmtDH(d.until)}` : "";
+  if (!d.targets.length) { $("tiles").innerHTML = `<div class="empty">no samples in this window.</div>`; return; }
+  const cls = t => t.loss_pct == null || t.loss_pct >= 0.5 ? "bd" : t.loss_pct >= LOSSY ? "wn" : "ok";
+  let html = d.targets.map(t => {
+    const dead = t.loss_pct >= 99.9, c = cls(t);
+    return `<div class="win tile"><span class="t">┤ ${esc(t.name)} ├</span>
+      <div class="name"><span class="dm">${esc(t.host || "")}</span><span class="pill ${c}">${dead ? "no reply" : c === "ok" ? "clean" : "lossy"}</span></div>
+      <div class="big ${c}">${t.loss_pct == null ? "-" : t.loss_pct.toFixed(3) + "%"}</div>
+      <div class="sub">${dead ? "never answers. Check it in settings or the path test."
+        : `${t.lost.toLocaleString()} of ${t.total.toLocaleString()} lost · avg ${t.avg} ms · p95 ${t.p95} ms`}</div>
+      ${spark(t.spark, col(t.name))}</div>`;
+  }).join("");
+  // verdict: is the loss inside the house or past the router?
+  const gw = d.targets.find(t => t.name === "gateway");
+  const ext = d.targets.filter(t => t.name !== "gateway" && t.loss_pct < 99.9);
+  const dead = d.targets.filter(t => t.loss_pct >= 99.9);
+  const lines = [];
+  if (gw) lines.push(gw.loss_pct < LOSSY ? `<span class="ok">[OK]</span> LAN is clean (gateway ${gw.loss_pct.toFixed(3)}%).` : `<span class="wn">[!!]</span> the gateway itself loses ${gw.loss_pct.toFixed(3)}%: cable, switch, Wi-Fi or the router.`);
+  if (ext.length) {
+    const lossy = ext.filter(t => t.loss_pct >= LOSSY);
+    if (lossy.length === ext.length && (!gw || gw.loss_pct < LOSSY)) lines.push(`<span class="wn">[!!]</span> every outside target loses packets while the LAN is clean, so the loss is past your router, on the ISP side.`);
+    else if (!lossy.length) lines.push(`<span class="ok">[OK]</span> outside targets are clean too.`);
+    else lines.push(`<span class="wn">[!!]</span> some outside targets lose packets (${lossy.map(t => esc(t.name)).join(", ")}): a problem on that path, not your line.`);
+  }
+  dead.forEach(t => lines.push(`<span class="bd">[XX]</span> ${esc(t.name)} never answers.`));
+  html += `<div class="win" style="grid-column:1/-1"><span class="t">┤ verdict ├</span>${lines.join("<br>")}</div>`;
+  $("tiles").innerHTML = html;
+}
+
+/* ---------------------------------------------------------------- timeline */
+async function loadTime() {
+  const h = +$("twin").value, end = endParam();
+  $("csvMin").href = `/api/csv?kind=minute&hours=${h}${end}`;
+  $("csvHour").href = `/api/csv?kind=hour&hours=${h}${end}`;
+  let d;
+  try { d = await api(`/api/timeline?hours=${h}${end}`); }
+  catch (e) { $("chart").innerHTML = `<text x="500" y="130" text-anchor="middle">${esc(e.message)}</text>`; return; }
+  const names = Object.keys(d.series).filter(n => d.series[n].some(p => p[1] != null));
+  const W = 1000, H = 260, L = 44, R = 10, T = 14, B = 40;
+  if (!names.length) { $("chart").innerHTML = `<text x="500" y="130" text-anchor="middle">no samples in this window</text>`; $("legend").innerHTML = ""; return; }
+  const all = names.flatMap(n => d.series[n].map(p => p[1]).filter(v => v != null)).sort((a, b) => a - b);
+  const raw = all[Math.floor(all.length * 0.99)] * 1.2;
+  const steps = [5, 10, 20, 30, 50, 100, 200, 500, 1000];
+  const max = steps.find(s => s >= raw) || Math.ceil(raw / 1000) * 1000;
+  const x = ts => L + (ts - d.since) / (d.until - d.since) * (W - L - R);
+  const y = v => T + (1 - Math.min(v, max) / max) * (H - T - B);
+  let s = "";
+  for (let i = 0; i <= 4; i++) { const v = max * i / 4; s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#1c3b24" stroke-dasharray="2 4"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${+v.toFixed(1)}</text>`; }
+  s += `<text x="${L + 6}" y="${T - 2}">ms</text>`;
+  const span = d.until - d.since, lab = span > 2 * 86400 ? fmtDH : fmtHM;
+  for (let i = 0; i <= 6; i++) { const ts = d.since + span * i / 6; s += `<text x="${x(ts)}" y="${H - B + 18}" text-anchor="${i === 0 ? "start" : i === 6 ? "end" : "middle"}">${lab(ts)}</text>`; }
+  names.forEach(n => {
+    let path = "", pen = false, prev = null;
+    d.series[n].forEach(p => {
+      // a missing bucket means netmon was not running: leave a gap, do not bridge it
+      if (prev != null && p[0] - prev > d.step * 1.5) pen = false;
+      prev = p[0];
+      if (p[1] == null) { pen = false; return; }
+      path += (pen ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1); pen = true;
+      if (p[2]) s += `<line x1="${x(p[0]).toFixed(1)}" x2="${x(p[0]).toFixed(1)}" y1="${H - B + 2}" y2="${H - B + 8}" stroke="#ff4d4d"/>`;
+    });
+    s += `<path d="${path}" fill="none" stroke="${col(n)}" stroke-width="1.2" opacity=".9"/>`;
+  });
+  $("chart").innerHTML = s;
+  $("legend").innerHTML = names.map(n => `<span><i style="background:${col(n)}"></i>${esc(n)}</span>`).join("");
+}
+
+/* ---------------------------------------------------------------- hourly */
+async function loadHour() {
+  let d;
+  try { d = await api(`/api/hourly?hours=${$("hwin").value}${endParam()}`); }
+  catch (e) { $("heat").innerHTML = `<div class="empty bd">${esc(e.message)}</div>`; return; }
+  const names = Object.keys(d.targets).sort();
+  if (!names.length) { $("heat").innerHTML = `<div class="empty">no samples in this window.</div>`; return; }
+  let h = `<div class="lb"></div>` + Array.from({length: 24}, (_, i) => `<div class="lb" style="text-align:center">${i % 3 ? "" : String(i).padStart(2, "0")}</div>`).join("");
+  names.forEach(n => {
+    h += `<div class="lb" title="${esc(n)}">${esc(n)}</div>`;
+    d.targets[n].forEach((c, i) => {
+      if (!c) { h += `<div></div>`; return; }
+      const v = c[0];
+      const bg = v >= 0.5 ? "#ff4d4d" : v >= 0.2 ? "#ffb000" : `rgba(57,255,106,${Math.min(0.12 + v * 3, 0.85).toFixed(2)})`;
+      h += `<div title="${esc(n)} ${String(i).padStart(2, "0")}:00 · ${v.toFixed(3)}% of ${c[1].toLocaleString()}" style="background:${bg}"></div>`;
+    });
+  });
+  $("heat").innerHTML = h;
+}
+
+/* ---------------------------------------------------------------- bursts */
+async function loadBursts() {
+  let d;
+  try { d = await api(`/api/bursts?hours=${$("bwin").value}&min=${+$("bmin").value || 3}${endParam()}`); }
+  catch (e) { $("bursts").innerHTML = `<tr><td class="bd">${esc(e.message)}</td></tr>`; return; }
+  $("bnote").textContent = `${d.count} found${d.count > d.bursts.length ? ", newest " + d.bursts.length + " shown" : ""}`;
+  if (!d.bursts.length) { $("bursts").innerHTML = `<tr><td class="ok">no bursts. That is good news.</td></tr>`; return; }
+  $("bursts").innerHTML = `<tr><th>started</th><th>target</th><th>lost in a row</th><th>until</th></tr>` + d.bursts.map(b =>
+    `<tr><td>${fmtT(b.start)}</td><td>${esc(b.target)}</td><td class="${b.lost >= 10 ? "bd" : "wn"}">${b.lost.toLocaleString()}</td><td class="dm">${b.ongoing ? "still losing" : fmtHM(b.end)}</td></tr>`).join("");
+}
+
+/* ---------------------------------------------------------------- latency */
+async function loadLat() {
+  const w = `hours=${$("lwin").value}${endParam()}`;
+  try {
+    const d = await api(`/api/latency?${w}`);
+    const f = v => v == null ? "-" : v.toFixed(1);
+    $("pct").innerHTML = `<tr><th>target</th><th>p50</th><th>p95</th><th>p99</th><th>max</th><th>jitter</th></tr>` + (d.targets.length ? d.targets.map(t => t.samples
+      ? `<tr><td>${esc(t.name)}</td><td>${f(t.p50)}</td><td>${f(t.p95)}</td><td class="${t.p99 > 50 ? "wn" : ""}">${f(t.p99)}</td><td class="dm">${f(t.max)}</td><td>${t.jitter == null ? "-" : t.jitter.toFixed(2)}</td></tr>`
+      : `<tr><td>${esc(t.name)}</td><td class="bd" colspan="5" style="text-align:center">no replies</td></tr>`).join("") : `<tr><td class="dm">no samples</td></tr>`);
+  } catch (e) { $("pct").innerHTML = `<tr><td class="bd">${esc(e.message)}</td></tr>`; }
+  try {
+    const d = await api(`/api/spikes?${w}&over=${+$("over").value || 0}`);
+    $("spikes").innerHTML = `<tr><th>time</th><th>target</th><th>rtt ms</th></tr>` + (d.spikes.length ? d.spikes.map(r =>
+      `<tr><td>${fmtT(r.ts)}</td><td>${esc(r.target)}</td><td class="${r.rtt > 300 ? "bd" : "wn"}">${r.rtt.toFixed(1)}</td></tr>`).join("") : `<tr><td colspan="3" class="ok">nothing over ${esc($("over").value)} ms</td></tr>`);
+  } catch (e) { $("spikes").innerHTML = `<tr><td class="bd">${esc(e.message)}</td></tr>`; }
+}
+
+/* ---------------------------------------------------------------- path test */
+let suggested = null;
+async function runMtr() {
+  const host = $("mhost").value.trim(), cycles = Math.max(1, Math.min(+$("mcyc").value || 10, 30));
+  $("mrun").disabled = true; $("edgeRow").hidden = true;
+  $("mout").className = ""; $("mout").textContent = `$ mtr -n -r -c ${cycles} ${host}\nrunning (about ${cycles} s)…`;
+  try {
+    const d = await api("/api/mtr", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({host, cycles})});
+    $("mout").textContent = `$ mtr -n -r -c ${cycles} ${host}\n` + d.output;
+    suggested = d.suggested_isp_edge;
+    if (suggested) {
+      const cur = SETTINGS && SETTINGS.targets.find(t => t.name === "isp_edge");
+      $("edgeText").innerHTML = `first ISP hop that answers: <span class="ok">${esc(suggested)}</span>` + (cur ? ` · isp_edge is now <span class="${cur.host === suggested ? "ok" : "wn"}">${esc(cur.host)}</span>` : "");
+      $("edgeRow").hidden = !!(cur && cur.host === suggested);
+    }
+  } catch (e) {
+    $("mout").className = "bd"; $("mout").textContent = "[XX] " + e.message;
+  } finally { $("mrun").disabled = false; }
+}
+
+/* ---------------------------------------------------------------- settings */
+let draft = [];
+function renderTargets() {
+  $("tgts").innerHTML = draft.map((r, i) => `<div class="tg">
+      <input class="ctl" id="tn${i}" value="${esc(r.name)}" aria-label="target name" pattern="[a-z0-9_]{1,24}" required>
+      <input class="ctl" id="ti${i}" value="${esc(r.host)}" aria-label="address of ${esc(r.name)}" required>
+      <button class="btn warn" type="button" data-del="${i}" aria-label="remove ${esc(r.name)}"${draft.length < 2 ? " disabled" : ""}>×</button></div>`).join("");
+  draft.forEach((r, i) => {
+    $("tn" + i).oninput = e => { r.name = e.target.value.trim(); cost(); };
+    $("ti" + i).oninput = e => { r.host = e.target.value.trim(); };
+  });
+  $("addt").disabled = draft.length >= 8;
+  cost();
+}
+function cost() {
+  const iv = Math.max(+$("ival").value || 1, 0.5), days = +$("ret").value || 30;
+  const perDay = draft.length * 86400 / iv * 92 / 1e6;   // ~92 bytes per ping incl. indexes (measured on nucserver)
+  $("cost").textContent = `≈ ${perDay.toFixed(0)} MB/day · ≈ ${(perDay * days / 1000).toFixed(1)} GB on disk at ${days} days (single SSD)`;
+}
+async function loadSettings() {
+  try { SETTINGS = await api("/api/settings"); }
+  catch (e) { $("saved").innerHTML = `<span class="bd">${esc(e.message)}</span>`; return; }
+  draft = SETTINGS.targets.map(t => ({...t}));
+  $("ival").value = SETTINGS.interval; $("tout").value = SETTINGS.timeout; $("ret").value = SETTINGS.retention_days;
+  renderTargets();
+}
+async function saveSettings(ev) {
+  ev.preventDefault();
+  $("save").disabled = true;
+  $("saved").innerHTML = `<span class="dm">[..] writing settings.env</span>`;
+  try {
+    const body = {targets: draft, interval: +$("ival").value, timeout: +$("tout").value, retention_days: +$("ret").value};
+    const d = await api("/api/settings", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    SETTINGS = d.settings;
+    const wasRunning = ST && ST.state === "active";
+    $("saved").innerHTML = wasRunning ? `<span class="dm">[..] saved · restarting netmon</span>` : `<span class="ok">[OK] saved.</span> <span class="dm">netmon is stopped; it uses these when it starts.</span>`;
+    if (wasRunning) {
+      await new Promise(r => setTimeout(r, 2500));
+      await refreshStatus();
+      $("saved").innerHTML = ST.state === "active"
+        ? `<span class="ok">[OK] netmon restarted with ${d.settings.targets.length} targets</span>`
+        : `<span class="bd">[XX] saved, but netmon is ${esc(ST.state)}. Check: journalctl -u netmon</span>`;
+    }
+  } catch (e) {
+    $("saved").innerHTML = `<span class="bd">[XX] ${esc(e.message)}</span>`;
+  } finally { $("save").disabled = false; }
+}
+
+/* ---------------------------------------------------------------- wiring */
+const LOADERS = {dash: loadDash, time: loadTime, hour: loadHour, burst: loadBursts, lat: loadLat, mtr: () => {}, set: loadSettings};
+function show(p) {
+  pane = p;
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.p === p));
+  document.querySelectorAll("[data-pane]").forEach(s => s.hidden = s.dataset.pane !== p);
+  try { localStorage.setItem("netmon.pane", p); } catch (e) { /* private mode */ }
+  history.replaceState(null, "", "#" + p);
+  LOADERS[p]();
+}
+$("tabs").addEventListener("click", e => { const b = e.target.closest("[data-p]"); if (b) show(b.dataset.p); });
+$("tgts").addEventListener("click", e => { const d = e.target.closest("[data-del]"); if (d) { draft.splice(+d.dataset.del, 1); renderTargets(); } });
+$("addt").onclick = () => { if (draft.length < 8) { draft.push({name: "", host: ""}); renderTargets(); $("tn" + (draft.length - 1)).focus(); } };
+$("edgeUse").onclick = () => {
+  show("set");
+  const t = draft.find(r => r.name === "isp_edge");
+  if (t) t.host = suggested; else draft.splice(Math.min(1, draft.length), 0, {name: "isp_edge", host: suggested});
+  renderTargets();
+  $("saved").innerHTML = `<span class="wn">isp_edge set to ${esc(suggested)}. Press save to apply.</span>`;
+};
+$("setForm").addEventListener("submit", saveSettings);
+$("mrun").onclick = runMtr;
+$("startBtn").onclick = () => control("start");
+$("stopBtn").onclick = () => control("stop");
+$("anchor").onchange = () => LOADERS[pane]();
+["ival", "ret"].forEach(id => $(id).addEventListener("input", cost));
+$("dwin").onchange = loadDash; $("twin").onchange = loadTime; $("hwin").onchange = loadHour;
+$("bwin").onchange = loadBursts; $("bmin").onchange = loadBursts;
+$("lwin").onchange = loadLat; $("over").onchange = loadLat;
+
+(async () => {
+  await refreshStatus();
+  loadSettings();
+  let p = "dash";
+  try { p = localStorage.getItem("netmon.pane") || "dash"; } catch (e) { /* private mode */ }
+  if (LOADERS[location.hash.slice(1)]) p = location.hash.slice(1);
+  show(LOADERS[p] ? p : "dash");
+  // status every 5 s (cheap); the dashboard's numbers every 30 s, which is
+  // what the server caches them for -- a day of data is ~1 s of CPU on the NUC
+  let tick = 0;
+  setInterval(() => {
+    if (document.hidden) return;
+    refreshStatus();
+    if (pane === "dash" && ++tick % 6 === 0) loadDash();
+  }, 5000);
+})();
+</script>
+</body>
+</html>
