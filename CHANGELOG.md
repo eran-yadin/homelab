@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.8.2 - 2026-10-25
+
+- transcribe: pin v0.2.0 -> v0.3.0, the new interface. Coffee palette in both themes, hairline rows instead of cards, search and filters on top, settings pinned at the bottom, soft gradient ground. Hebrew gets `dir="auto"` throughout, so an RTL filename and an English one sit correctly in the same list. Kept cheap for a 2-core box: no framework, native `<select>`/`<audio>`, filters in the page, and polling only while something is actually transcribing
+
 ## v1.8.1 - 2026-10-25
 
 - transcribe: `needs_ram_mb` 2048 -> 3072. Measured on nucserver: a 13.6-minute Hebrew clip peaked at 2569 MiB with the turbo model at int8, so the old figure would have let the installer pass a host that then swapped. Baseline for later comparison: 5m57s wall clock, 0.44x realtime, 26s of compute per audio-minute

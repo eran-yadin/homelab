@@ -9,7 +9,7 @@
 # below, then `homelab update transcribe`.
 services:
   transcribe:
-    image: ghcr.io/eran-yadin/transcribe:${TRANSCRIBE_VERSION:-v0.2.0}
+    image: ghcr.io/eran-yadin/transcribe:${TRANSCRIBE_VERSION:-v0.3.0}
     container_name: transcribe
     restart: unless-stopped
     # tini as PID 1. The app installs its own SIGTERM handler too; without
