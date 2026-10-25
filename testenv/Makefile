@@ -65,6 +65,7 @@ check:
 	  command -v $$c >/dev/null || { echo "missing: $$c"; exit 1; }
 	done
 	[ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "no access to /dev/kvm"; exit 1; }
+	mkdir -p $(RUN)
 	echo probe > $(RUN)/.rl.src
 	if cp --reflink=always $(RUN)/.rl.src $(RUN)/.rl.dst 2>/dev/null; then
 	  echo "reflink: supported (resets are instant, zero extra disk)"

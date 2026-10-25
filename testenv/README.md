@@ -19,10 +19,13 @@ systemd or install Docker inside itself, which is precisely what we need to test
 Already satisfied on cachy-rig; nothing needs installing.
 
 - `qemu-system-x86_64`, `/dev/kvm` readable (runs at near-native speed)
+- `qemu-img`, to resize the golden image once at build time
 - `mkfs.vfat` + `mcopy` (dosfstools, mtools) to build the cloud-init seed
 - a **reflink-capable filesystem** (btrfs/xfs) for instant resets
 
-No `qemu-img`, no libvirt, no Vagrant, no root.
+No libvirt, no Vagrant, no root.
+
+On Arch: `qemu-system-x86 qemu-img mtools` (dosfstools is usually already in).
 
 ## Usage
 
