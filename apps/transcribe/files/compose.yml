@@ -1,22 +1,35 @@
+# The app itself lives at https://github.com/eran-yadin/transcribe and publishes
+# a pinned image; this file only deploys it. It used to carry the source and
+# `build: .`, which meant every install compiled faster-whisper on the target.
+#
+# The version pin lives here rather than in env.template on purpose. Unlike
+# immich, whose upstream publishes a floating `release` tag, we cut these
+# releases ourselves -- and env.template is rendered once and never overwritten,
+# so a pin there could never be moved by a catalog update. Bump the default
+# below, then `homelab update transcribe`.
 services:
   transcribe:
-    build: .
-    image: homelab/transcribe:latest
+    image: ghcr.io/eran-yadin/transcribe:${TRANSCRIBE_VERSION:-v0.1.0}
     container_name: transcribe
     restart: unless-stopped
+    # tini as PID 1. The app installs its own SIGTERM handler too; without
+    # either, a stop waits out the grace period and then SIGKILLs -- which is
+    # what made every exit a 137, with no clean SQLite close.
+    init: true
+    stop_grace_period: 30s
     ports:
       - "8011:8011"
     volumes:
       - data:/data              # uploads, transcripts, sqlite db, model cache
     environment:
-      # --- model ---
       # Hebrew-best default. Swap to "large-v3-turbo" for English-dominant audio.
-      WHISPER_MODEL: ivrit-ai/whisper-large-v3-turbo-ct2
-      WHISPER_COMPUTE: int8     # lean on CPU; "int8_float32" if you want a touch more accuracy
-      WHISPER_LANGUAGE: auto    # auto | he | en
-      WHISPER_BEAM: "5"
-      # --- CPU budget (i3-7100U = 2c/4t) ---
-      WHISPER_THREADS: "${WHISPER_THREADS:-3}"   # set from detected cores at install time
+      WHISPER_MODEL: ${WHISPER_MODEL:-ivrit-ai/whisper-large-v3-turbo-ct2}
+      WHISPER_COMPUTE: ${WHISPER_COMPUTE:-int8}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-auto}
+      WHISPER_BEAM: ${WHISPER_BEAM:-5}
+      # Set from the detected core count at install time, by download.sh.
+      WHISPER_THREADS: ${WHISPER_THREADS:-3}
+      OMP_NUM_THREADS: ${WHISPER_THREADS:-3}
       PORT: "8011"
 
 volumes:
