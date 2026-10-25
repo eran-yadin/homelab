@@ -4,6 +4,12 @@ One line per release. The hub's Update button installs the newest tag here.
 
 ## v1.8.0 - 2026-10-25
 
+Verified in the test VM against the published image: conformance 15/15, a full
+data migration seeded with the NUC's real recording, and a backup/restore
+round-trip that leaves the ~1.6 GB model cache intact -- the first time
+backup/restore has been exercised on this app at all, since conformance does
+not cover it despite the contract requiring it for stateful=1.
+
 - transcribe: the app is its own project now (github.com/eran-yadin/transcribe) and this entry only deploys its published image, pinned to `v0.2.0` in `files/compose.yml`. It used to carry the source here with `build: .`, so every install compiled faster-whisper on the target -- a 2-core i3 -- and tagged the result `:latest` on an app that holds data: no version to report, nothing to roll back to. The image carries an OCI version label, which `_img_ver` already reads, so `update` now shows a real version jump. The pin lives in the compose file rather than `env.template` because that file is rendered once and never overwritten, so a pin there could never be moved by a catalog update
 - transcribe: `init: true` and `stop_grace_period`. The app runs python as PID 1, and PID 1 ignores any signal with no registered handler, so every `docker stop` waited out the 10s grace period and then SIGKILLed it -- exit 137 each time, with no clean SQLite close. Fixed in the app as of its v0.1.0; the compose flags are the second line of defence
 - transcribe: `needs_disk_mb` 4096 -> 8192. Measured rather than estimated: the image unpacks to 1.43 GB and the model cache is another ~1.6 GB, so roughly 3 GB is spent before the first recording. The old figure left under a gigabyte for audio, and it predates anyone checking
