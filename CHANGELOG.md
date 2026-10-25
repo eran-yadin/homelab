@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.8.1 - 2026-10-25
+
+- transcribe: `needs_ram_mb` 2048 -> 3072. Measured on nucserver: a 13.6-minute Hebrew clip peaked at 2569 MiB with the turbo model at int8, so the old figure would have let the installer pass a host that then swapped. Baseline for later comparison: 5m57s wall clock, 0.44x realtime, 26s of compute per audio-minute
+- transcribe: corrected the unpacked-image figure in the `needs_disk_mb` comment. It said 1.43 GB, which was the test VM's `docker images` number; nucserver reports 1.03 GB for the same digest, so it is driver-dependent and the comment now gives the range. The 8192 figure is unaffected
+
 ## v1.8.0 - 2026-10-25
 
 Verified in the test VM against the published image: conformance 15/15, a full
