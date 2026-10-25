@@ -21,6 +21,12 @@ i3-7100U, 4 threads, 16 GB, single 500 GB SSD).
    main alone changes nothing on the NUC. `--channel main` follows the
    branch, `--to vX.Y.Z` pins or goes back, `deploy --from ~/homelab --apply`
    deploys an uncommitted tree.
+
+   **Version scheme:** `x.y.z`. Adding something -- a new app, a new engine
+   feature -- bumps **y**. Bumping an app's pinned version, or any fix or
+   correction, bumps **z**. Stay on the same **y** while a piece of work is
+   still in progress: a run of releases for one project belongs on `1.8.z`, not
+   spread across `1.8`, `1.9`, `1.10`.
 5. **Read-only queries must not use sudo.** `systemctl cat/is-active/is-enabled/
    show` and `ss` all work unprivileged. Using sudo makes them fail on any host
    without blanket NOPASSWD, and a failed "does this exist?" reads as *absent*.
