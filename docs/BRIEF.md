@@ -1,16 +1,16 @@
-# The card contract
+# The brief contract
 
-A **card** is a compact, structured summary of one item — a recording, a
+A **brief** is a compact, structured summary of one item — a recording, a
 document, later a photo — written once by a small local model at ingest, so a
 large model can search the whole server without reading it.
 
 That is the entire point, so it is worth stating as a budget rather than a
 feeling:
 
-> A card must stay under **~200 tokens**. Five hundred cards is then ~100k
+> A brief must stay under **~200 tokens**. Five hundred briefs is then ~100k
 > tokens — one context, cheap. Five hundred transcripts is millions.
 
-A card is therefore not a summary for a human to enjoy. It is an index entry
+A brief is therefore not a summary for a human to enjoy. It is an index entry
 dense enough for a model to decide *which two items to actually open*.
 
 ## The shape
@@ -66,9 +66,9 @@ lines and not a parser.
 
 ## Rules
 
-1. **A card is derived, never authoritative.** It can be thrown away and
-   regenerated from the item at any time. Nothing may be edited into a card by
-   hand, because the next backfill would silently discard it.
+1. **A brief is derived, never authoritative.** It can be thrown away and
+   regenerated from the item at any time. Nothing may be edited into a brief by
+   hand, because the next backfill would silently disbrief it.
 
 2. **The `tldr` stays in the source language.** A Hebrew call gets a Hebrew
    `tldr`. Translating costs tokens and loses fidelity, and the consumer is a
@@ -82,24 +82,24 @@ lines and not a parser.
    and the adapter must accept it.
 
 4. **`generated.prompt` is a version, and it matters.** Change the prompt and
-   every existing card was produced by a different instrument. Bump it, and a
+   every existing brief was produced by a different instrument. Bump it, and a
    backfill can find the stale ones with one query instead of regenerating
    everything.
 
-5. **Cards are cheap to make and cheap to lose.** Generation is a batch job that
+5. **Briefs are cheap to make and cheap to lose.** Generation is a batch job that
    must yield to anything interactive — on a 2-core box, OCR and a transcription
    both outrank it. Resumable, idempotent, and interruptible at any item.
 
-6. **One item, one card.** No cards that summarise several items; that is the
-   big model's job at query time, and a merged card cannot be invalidated when
+6. **One item, one brief.** No briefs that summarise several items; that is the
+   big model's job at query time, and a merged brief cannot be invalidated when
    one of its items changes.
 
 ## Where generation lives, and why it is not in the apps
 
-The obvious design is for each app to write its own cards at ingest. It cannot
+The obvious design is for each app to write its own briefs at ingest. It cannot
 work here, for a reason that has nothing to do with taste: **we did not write
 most of the sources.** paperless-ngx, immich, jellyfin and navidrome are other
-people's images. There is no change to a compose file that adds a card route to
+people's images. There is no change to a compose file that adds a brief route to
 paperless. `transcribe` is the only source in this catalog we author.
 
 paperless makes the point twice over, because on nucserver it is not even
@@ -108,7 +108,7 @@ catalog-managed: its containers were created from
 recreate them. Adopting it into the catalog later would change none of this --
 which is the sign the boundary is in the right place.
 
-So generation is **pull-based, from outside the sources**: one `cards` app in
+So generation is **pull-based, from outside the sources**: one `briefs` app in
 the catalog owns the model, the prompt, the queue and the policy, and reads each
 source through a small adapter. Nothing in a source changes -- no schema, no
 routes, no restart, no fork of someone else's image.
@@ -116,13 +116,13 @@ routes, no restart, no fork of someone else's image.
 ```
   transcribe        paperless         immich            <- sources, unmodified
       |                 |                |
-      +--------- apps/<name>/card.py ----+              <- ~20 lines each
+      +--------- apps/<name>/brief.py ----+              <- ~20 lines each
                         |
                         v
-                 cards service  --------->  ollama      <- one model, one prompt,
+                 briefs service  --------->  ollama      <- one model, one prompt,
                   (own sqlite)                             one contention policy
                         |
-          GET /api/cards | GET /api/card/<source>/<id>
+          GET /api/briefs | GET /api/brief/<source>/<id>
                         |
                         v
                    MCP server  ---->  Claude
@@ -136,7 +136,7 @@ Two functions, and they may only use what the source already exposes. A source
 with any read API satisfies this without being touched.
 
 ```python
-# apps/transcribe/card.py
+# apps/transcribe/brief.py
 def list(since=None):
     # [{id, title, date, kind, lang, extent, url}, ...] - cheap, carries no text
     ...
@@ -150,32 +150,32 @@ transcribe answers both already: `/api/status` for the list,
 `/api/transcript/<id>` for the text. paperless answers both from its own API
 with a token. Neither needs a line changed.
 
-### What the cards service owns
+### What the briefs service owns
 
 Everything expensive or opinionated, so it exists once instead of per app:
 
 - **The prompt**, as one versioned file. One prompt across every source, with
-  `source` and `kind` passed in as context -- that is what makes a document card
-  and a call card comparable in one index.
+  `source` and `kind` passed in as context -- that is what makes a document brief
+  and a call brief comparable in one index.
 - **The model choice** and its ollama endpoint. Changing model is one config
   edit and one backfill, not an edit per app.
 - **The queue**: resumable, idempotent, one item at a time.
-- **The contention policy.** Card generation is the lowest-priority work on the
+- **The contention policy.** Brief generation is the lowest-priority work on the
   box and must yield to a transcription or an OCR run. One place to get that
   right; N places to get it wrong.
-- **The cards**, in its own SQLite keyed by `(source, id)`. This is what keeps a
+- **The briefs**, in its own SQLite keyed by `(source, id)`. This is what keeps a
   source untouched, and it is why a third-party app can participate at all.
 
 ### The endpoints
 
 | endpoint | served by | returns |
 |---|---|---|
-| `GET /api/cards` | cards service | every card, newest first; `?since=`, `?source=` |
-| `GET /api/card/<source>/<id>` | cards service | one card |
+| `GET /api/briefs` | briefs service | every brief, newest first; `?since=`, `?source=` |
+| `GET /api/brief/<source>/<id>` | briefs service | one brief |
 | the item's own route | the source app | the full transcript or document |
 
-**The card index is what gets searched; the item is what gets opened.** The big
-model reads cards from one service, then drills into a source directly -- which
+**The brief index is what gets searched; the item is what gets opened.** The big
+model reads briefs from one service, then drills into a source directly -- which
 is why adding a source never touches the query side.
 
 Tokens live in `/var/lib/homelab-hub/search/<app>.token`, 0600, as in
@@ -189,5 +189,5 @@ Tokens live in `/var/lib/homelab-hub/search/<app>.token`, 0600, as in
   where the real volume is, it is someone else's image, and it is not even
   catalog-managed here. If the pipeline works for paperless it works for
   anything with a read API.
-- Anything else joins by adding `apps/<name>/card.py`. No change to the cards
+- Anything else joins by adding `apps/<name>/brief.py`. No change to the briefs
   service, the MCP server, or the query side.
