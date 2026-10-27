@@ -98,6 +98,13 @@ Each of these cost a debugging cycle. Do not rediscover them.
   until docker is found; guard with `[ "${#DK[@]}" -eq 0 ]` first.
 - **The test VM gives its user blanket NOPASSWD sudo.** That has hidden two real
   permissions bugs. It is a faithful machine but a misleading user.
+- **A deploy copies, it never deletes.** `update self` and `deploy` extract a tar
+  over `/opt/homelab`, so a file a commit *added* survives a revert to a tag that
+  never had it. Going back from a hub-login commit to v1.8.2 left
+  `apps/caddy/start.sh` and `delete.sh` in place, and `start.sh` would have
+  re-applied on the next start exactly what the revert had just undone -- silently.
+  After any revert, compare `/opt/homelab/apps/<app>/` against
+  `git ls-tree <tag> apps/<app>/` and delete what the tag does not carry.
 
 ## Verifying
 
