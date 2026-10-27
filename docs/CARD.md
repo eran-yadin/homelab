@@ -94,27 +94,100 @@ lines and not a parser.
    big model's job at query time, and a merged card cannot be invalidated when
    one of its items changes.
 
-## How an app serves them
+## Where generation lives, and why it is not in the apps
 
-Two endpoints, mirroring how the hub already fans out for search:
+The obvious design is for each app to write its own cards at ingest. It cannot
+work here, for a reason that has nothing to do with taste: **we did not write
+most of the sources.** paperless-ngx, immich, jellyfin and navidrome are other
+people's images. There is no change to a compose file that adds a card route to
+paperless. `transcribe` is the only source in this catalog we author.
 
-| endpoint | returns |
-|---|---|
-| `GET /api/cards` | every card, newest first. `?since=<iso>` for the tail |
-| `GET /api/card/<id>` | one card |
+paperless makes the point twice over, because on nucserver it is not even
+catalog-managed: its containers were created from
+`~/paperless/docker-compose.yml`, so the engine can watch them but must not
+recreate them. Adopting it into the catalog later would change none of this --
+which is the sign the boundary is in the right place.
 
-The full item stays behind the app's existing routes — `/api/transcript/<id>`
-for transcribe. **The card index is what gets searched; the item is what gets
-opened.** An adapter that returns transcripts in `/api/cards` has missed the
-point and blown the budget.
+So generation is **pull-based, from outside the sources**: one `cards` app in
+the catalog owns the model, the prompt, the queue and the policy, and reads each
+source through a small adapter. Nothing in a source changes -- no schema, no
+routes, no restart, no fork of someone else's image.
+
+```
+  transcribe        paperless         immich            <- sources, unmodified
+      |                 |                |
+      +--------- apps/<name>/card.py ----+              <- ~20 lines each
+                        |
+                        v
+                 cards service  --------->  ollama      <- one model, one prompt,
+                  (own sqlite)                             one contention policy
+                        |
+          GET /api/cards | GET /api/card/<source>/<id>
+                        |
+                        v
+                   MCP server  ---->  Claude
+                        |
+                        +-- drills down into the SOURCE's own item route
+```
+
+### What a source must provide
+
+Two functions, and they may only use what the source already exposes. A source
+with any read API satisfies this without being touched.
+
+```python
+# apps/transcribe/card.py
+def list(since=None):
+    # [{id, title, date, kind, lang, extent, url}, ...] - cheap, carries no text
+    ...
+
+def text(item_id):
+    # the plain text to summarise, fetched one item at a time, never in bulk
+    ...
+```
+
+transcribe answers both already: `/api/status` for the list,
+`/api/transcript/<id>` for the text. paperless answers both from its own API
+with a token. Neither needs a line changed.
+
+### What the cards service owns
+
+Everything expensive or opinionated, so it exists once instead of per app:
+
+- **The prompt**, as one versioned file. One prompt across every source, with
+  `source` and `kind` passed in as context -- that is what makes a document card
+  and a call card comparable in one index.
+- **The model choice** and its ollama endpoint. Changing model is one config
+  edit and one backfill, not an edit per app.
+- **The queue**: resumable, idempotent, one item at a time.
+- **The contention policy.** Card generation is the lowest-priority work on the
+  box and must yield to a transcription or an OCR run. One place to get that
+  right; N places to get it wrong.
+- **The cards**, in its own SQLite keyed by `(source, id)`. This is what keeps a
+  source untouched, and it is why a third-party app can participate at all.
+
+### The endpoints
+
+| endpoint | served by | returns |
+|---|---|---|
+| `GET /api/cards` | cards service | every card, newest first; `?since=`, `?source=` |
+| `GET /api/card/<source>/<id>` | cards service | one card |
+| the item's own route | the source app | the full transcript or document |
+
+**The card index is what gets searched; the item is what gets opened.** The big
+model reads cards from one service, then drills into a source directly -- which
+is why adding a source never touches the query side.
 
 Tokens live in `/var/lib/homelab-hub/search/<app>.token`, 0600, as in
 `pro - home server - HOMELAB_HUB - unified search`.
 
 ## Who implements it
 
-- **transcribe** first: it already stores plain text plus timestamped JSON, and
-  it is ours to change.
-- **paperless** second, and it is where the real volume is — 200+ documents
-  against one audio library.
-- Anything else joins by emitting the same ten-odd keys.
+- **transcribe** first, as the proving source: its two read routes already
+  satisfy the adapter contract, so the first adapter really is ~20 lines.
+- **paperless** second, because it is the one that proves the design. It is
+  where the real volume is, it is someone else's image, and it is not even
+  catalog-managed here. If the pipeline works for paperless it works for
+  anything with a read API.
+- Anything else joins by adding `apps/<name>/card.py`. No change to the cards
+  service, the MCP server, or the query side.
