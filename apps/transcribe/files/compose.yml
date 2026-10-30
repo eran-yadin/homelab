@@ -9,7 +9,7 @@
 # below, then `homelab update transcribe`.
 services:
   transcribe:
-    image: ghcr.io/eran-yadin/transcribe:${TRANSCRIBE_VERSION:-v0.3.0}
+    image: ghcr.io/eran-yadin/transcribe:${TRANSCRIBE_VERSION:-v0.4.0}
     container_name: transcribe
     restart: unless-stopped
     # tini as PID 1. The app installs its own SIGTERM handler too; without
@@ -20,7 +20,12 @@ services:
     ports:
       - "8011:8011"
     volumes:
-      - data:/data              # uploads, transcripts, sqlite db, model cache
+      - data:/data              # uploads, transcripts, sqlite db
+      # The ~3 GB model cache gets its own volume so the pre-update backup does
+      # not have to archive it. Declared bulk_volumes in app.conf, which is what
+      # tells the engine to skip it -- and that only works per volume, which is
+      # exactly why the cache could not stay a subdirectory of `data`.
+      - models:/models
     environment:
       # Hebrew-best default. Swap to "large-v3-turbo" for English-dominant audio.
       WHISPER_MODEL: ${WHISPER_MODEL:-ivrit-ai/whisper-large-v3-turbo-ct2}
@@ -30,7 +35,9 @@ services:
       # Set from the detected core count at install time, by download.sh.
       WHISPER_THREADS: ${WHISPER_THREADS:-3}
       OMP_NUM_THREADS: ${WHISPER_THREADS:-3}
+      MODEL_DIR: /models
       PORT: "8011"
 
 volumes:
   data:
+  models:

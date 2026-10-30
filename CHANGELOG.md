@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.8.3 - 2026-10-30
+
+- transcribe: pin v0.3.0 -> v0.4.0. The search index becomes external-content, so search results finally carry a highlighted excerpt and a recording can be deleted from the UI at all; existing databases migrate themselves on first start. Also a `phase` field so "downloading a 1.6 GB model" stops reading as "transcribing", and every `app.logger.info` line in the app now actually prints -- they had been discarded since the first commit
+- transcribe: `bulk_volumes="models"`, with the model cache moved to its own volume. It is ~3.2 GB of re-downloadable files guarding ~35 MB of real data, so every pre-update backup was spending minutes archiving 99% cache. `bulk_volumes` works per volume, which is precisely why the cache could not stay a subdirectory of `data`
+
 ## v1.8.2 - 2026-10-25
 
 - transcribe: pin v0.2.0 -> v0.3.0, the new interface. Coffee palette in both themes, hairline rows instead of cards, search and filters on top, settings pinned at the bottom, soft gradient ground. Hebrew gets `dir="auto"` throughout, so an RTL filename and an English one sit correctly in the same list. Kept cheap for a 2-core box: no framework, native `<select>`/`<audio>`, filters in the page, and polling only while something is actually transcribing
