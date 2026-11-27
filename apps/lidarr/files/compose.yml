@@ -1,0 +1,22 @@
+services:
+  lidarr:
+    image: docker.io/linuxserver/lidarr:3.1.6
+    container_name: lidarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jerusalem}
+    ports:
+      - "8686:8686"
+    volumes:
+      - config:/config
+      - ${MEDIA_DIR:-/srv/media}:/media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:8686/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+volumes:
+  config:

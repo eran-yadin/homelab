@@ -1,0 +1,28 @@
+services:
+  qbittorrent:
+    image: docker.io/linuxserver/qbittorrent:5.3.1
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jerusalem}
+      WEBUI_PORT: "8090"
+      TORRENTING_PORT: "6881"
+    ports:
+      - "8090:8090"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - config:/config
+      # Same folder as Radarr/Sonarr/Lidarr and Jellyfin, so a finished
+      # download is moved or hard-linked into Movies/Shows/Music, not copied.
+      - ${MEDIA_DIR:-/srv/media}:/media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:8090/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+volumes:
+  config:

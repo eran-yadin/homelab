@@ -1,0 +1,30 @@
+services:
+  # Seerr runs as the image's node user (1000); a fresh named volume is root's.
+  init-perms:
+    image: docker.io/library/alpine:3
+    command: ["sh", "-c", "chown -R 1000:1000 /app/config"]
+    volumes:
+      - config:/app/config
+  seerr:
+    image: docker.io/seerr/seerr:v3.5.2
+    container_name: seerr
+    restart: unless-stopped
+    init: true
+    depends_on:
+      init-perms:
+        condition: service_completed_successfully
+    environment:
+      TZ: ${TZ:-Asia/Jerusalem}
+      PORT: "5055"
+    ports:
+      - "5055:5055"
+    volumes:
+      - config:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:5055/api/v1/status || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+volumes:
+  config:

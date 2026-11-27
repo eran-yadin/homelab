@@ -1,0 +1,22 @@
+services:
+  radarr:
+    image: docker.io/linuxserver/radarr:7.0.3
+    container_name: radarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jerusalem}
+    ports:
+      - "7878:7878"
+    volumes:
+      - config:/config
+      - ${MEDIA_DIR:-/srv/media}:/media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:7878/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+volumes:
+  config:

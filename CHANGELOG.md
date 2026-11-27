@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.17.0 - 2026-11-27
+
+- media stack, as on home-server-kit: six new apps. **qBittorrent** 5.3.1 (downloads, web UI on 8090 since AMP has 8080), **Prowlarr** 3.1.0 (the download sources, one place for all; starts with none), **Radarr** 7.0.3 / **Sonarr** 4.0.20 / **Lidarr** 3.1.6 (pick and file movies, shows, music), **Seerr** v3.5.2 (requests, signs in with Jellyfin accounts). All pinned, all from Docker Hub. They work in `/media` = the same `/srv/media` Jellyfin reads, with downloads in `/srv/media/downloads`, so a finished file is moved or hard-linked into Movies/Shows/Music instead of copied. Files are written as the box owner, so Jellyfin and Samba read them. Each has its own hub card and `<app>.nuc` route; the firewall keeps all of them to the LAN and the tailnet. Connecting them to each other is a one-time step in their settings, as on the kit (docs/COMMANDS.md, "Media stack")
+
 ## v1.16.0 - 2026-11-27
 
 - ut99: new app, an Unreal Tournament 99 dedicated server (`phasecorex/ut99-server`, pinned by digest: the 436 server, bonus packs and OldUnreal 469e, downloaded into the volume on first start). Game on udp 7777-7781 + 8777, web admin on :5080 (`ut99.nuc`), user `admin` with a generated password that also works for in-game `adminlogin`. Server name, admin password, first map, game type and mutators come from the .env and are written into UnrealTournament.ini on every start; the rest of the ini is left alone. For players outside the CGNAT, point a playit.gg UDP tunnel at 127.0.0.1:7777

@@ -1,0 +1,21 @@
+services:
+  prowlarr:
+    image: docker.io/linuxserver/prowlarr:3.1.0
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Asia/Jerusalem}
+    ports:
+      - "9696:9696"
+    volumes:
+      - config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:9696/ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+volumes:
+  config:

@@ -74,6 +74,20 @@ sudo $H jellyfin share list --apply
 sudo $H jellyfin share stop dan --apply            # or: stop all
 ```
 
+## Media stack (once, after installing)
+
+```sh
+sudo $H install qbittorrent prowlarr radarr sonarr lidarr seerr --apply
+docker logs qbittorrent 2>&1 | grep -i password   # qBittorrent's one-time admin password
+```
+
+Then, in each app's web page (all on the NUC, `http://10.0.0.5:<port>` or `<app>.nuc`):
+
+1. **qBittorrent** (:8090): log in as `admin` with that password, set your own (Tools > Options > WebUI), default save path `/media/downloads`.
+2. **Radarr** (:7878): Settings > Media Management > root folder `/media/Movies`; Settings > Download Clients > qBittorrent, host `10.0.0.5`, port `8090`. **Sonarr** (:8989): same with `/media/Shows`. **Lidarr** (:8686): `/media/Music`.
+3. **Prowlarr** (:9696): Settings > Apps > add Radarr, Sonarr, Lidarr (their API keys: each app's Settings > General). Indexers > Add your sources (or restore a Prowlarr backup from another server: System > Backup > Restore).
+4. **Seerr** (:5055): choose Jellyfin, `http://10.0.0.5:8096`, sign in with the Jellyfin admin, add Radarr and Sonarr.
+
 ## USB drives (read-only)
 
 ```sh
