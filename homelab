@@ -76,6 +76,9 @@ usage: homelab <command> [app] [options]
                          Sundays (4). Caches (cache_volumes=) are left out.
                          This is what the `backup` app's nightly timer runs.
   restore <app> <dir>
+  offsite allow "<ssh public key>" | revoke <name> | status
+                         let another machine pull the nightly backups over
+                         ssh, read-only (needs the backup app)
   migrate <app> --from [user@]host:/dir
                          fetch a backup from another machine and bring the app
                          up here, in the one order that is safe
@@ -866,9 +869,17 @@ cmd_backup_all() {
     local stamp; stamp="$(date +%Y-%m-%d_%H%M%S)"
     local part="$root/.partial-$stamp" final="$root/$stamp"
     log "backing up: $(tr '\n' ' ' <<<"$apps")-> $final"
-    # The archives hold every app's data and its .env secrets: root only.
+    # The archives hold every app's data and its .env secrets: root only,
+    # plus read for the offsite pull user when the backup app created it.
+    local offgrp=""
+    if getent group homelab-offsite >/dev/null 2>&1; then offgrp=homelab-offsite; fi
     run mkdir -p "$root"
-    run chmod 0700 "$root"
+    if [ -n "$offgrp" ]; then
+        run chgrp "$offgrp" "$root"
+        run chmod 0750 "$root"
+    else
+        run chmod 0700 "$root"
+    fi
     run mkdir -p "$part"
 
     local n rc t0 secs size failed="" summary=""
@@ -896,6 +907,12 @@ cmd_backup_all() {
     printf '%s' "$summary" | run_write "$part/SUMMARY" 0600
     run mv "$part" "$final"
     run ln -sfn "$stamp" "$root/latest"
+    # The whole tree, not just tonight: nights made before the offsite user
+    # existed would otherwise stay root-only and fail every pull.
+    if [ -n "$offgrp" ]; then
+        run chgrp -R "$offgrp" "$root"
+        run chmod -R g+rX,g-w,o-rwx "$root"
+    fi
     printf '%s' "$summary" | sed 's/^/    /' >&2
 
     backup_prune "$root" "$stamp"
@@ -904,6 +921,50 @@ cmd_backup_all() {
         die "backup finished with failures: ${failed% } (the rest are in $final)"
     fi
     ok "backup done: $final"
+}
+
+# Let another machine pull the nightly backups. The key is forced through
+# /usr/local/lib/homelab/offsite-pull (rrsync -ro on the backup folder), so
+# whoever holds it can read the backups and do nothing else.
+OFFSITE_KEYS=/var/lib/homelab-offsite/.ssh/authorized_keys
+cmd_offsite() {
+    local sub="${ARGS[0]:-status}" key opts
+    opts='command="/usr/local/lib/homelab/offsite-pull",restrict'
+    case "$sub" in
+    allow)
+        key="${ARGS[1]:-}"
+        [ -n "$key" ] || die 'usage: homelab offsite allow "<ssh public key>"'
+        # Only a single public key line: no options of its own, no newlines, and a
+        # plain name (it ends up inside a shell command below).
+        printf '%s' "$key" | grep -qE '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]+( [A-Za-z0-9@._-]+)?$' \
+            || die "that does not look like one ssh public key (ssh-ed25519 AAAA... name)"
+        id homelab-offsite >/dev/null 2>&1 || die "install the backup app first: homelab install backup --apply"
+        banner_mode
+        local blob; blob="$(printf '%s' "$key" | awk '{print $2}')"
+        if $SUDO test -f "$OFFSITE_KEYS" && $SUDO grep -qF "$blob" "$OFFSITE_KEYS"; then
+            ok "that key is already allowed"; return 0
+        fi
+        log "allowing $(printf '%s' "$key" | awk '{print $3}') to pull the backups (read-only)"
+        run_sh "printf '%s %s\n' '$opts' '$key' | $SUDO tee -a '$OFFSITE_KEYS' >/dev/null"
+        run $SUDO chown homelab-offsite:homelab-offsite "$OFFSITE_KEYS"
+        run $SUDO chmod 0600 "$OFFSITE_KEYS"
+        ok "done. on that machine: rsync -a homelab-offsite@<this host>:./ <dir>/"
+        ;;
+    revoke)
+        key="${ARGS[1]:-}"; [ -n "$key" ] || die 'usage: homelab offsite revoke "<key name or key>"'
+        banner_mode
+        run_sh "$SUDO sed -i '/$(printf '%s' "$key" | sed 's/[^A-Za-z0-9@._-]/./g')/d' '$OFFSITE_KEYS'"
+        ok "revoked"
+        ;;
+    status|list)
+        if ! ${SUDO:+$SUDO -n} test -f "$OFFSITE_KEYS" 2>/dev/null; then echo "no machine is allowed to pull the backups"; return 0; fi
+        echo "allowed to pull:"
+        ${SUDO:+$SUDO -n} awk '{print "  " $NF}' "$OFFSITE_KEYS" 2>/dev/null || true
+        local last; last="$(${SUDO:+$SUDO -n} cat /var/lib/homelab-offsite/last-pull 2>/dev/null || true)"
+        if [ -n "$last" ]; then echo "last pull: $(date -d "@$last" '+%F %H:%M')"; else echo "last pull: never"; fi
+        ;;
+    *) die "usage: homelab offsite allow|revoke|status" ;;
+    esac
 }
 
 cmd_restore() {
@@ -974,6 +1035,7 @@ case "$CMD" in
     backup)  cmd_backup ;;
     migrate) cmd_migrate ;;
     restore) cmd_restore ;;
+    offsite) cmd_offsite ;;
     ""|help|-h|--help) usage ;;
     *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
 esac

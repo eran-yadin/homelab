@@ -95,12 +95,55 @@ app_verb_impl() {  # -> path of script, and sets VERB_ARGV
     fi
 }
 
+# One command per app at a time. Two `docker compose up` for the same project
+# race for the same container names: on nucserver a hub Install of manyfold
+# was still pulling when Start was pressed, and the install died on "container
+# name already in use". The nightly backup must not pause an app mid-install
+# either. So every verb that can change an app holds a per-app lock; a second
+# one waits for the first (and then usually finds nothing left to do). Only
+# with --apply: a dry run changes nothing and status is read-only.
+HOMELAB_LOCKS="${HOMELAB_LOCKS:-/run/homelab/locks}"
+HOMELAB_LOCK_WAIT="${HOMELAB_LOCK_WAIT:-900}"
+
+_lock_needed() {  # _lock_needed <verb>
+    [ "${HOMELAB_APPLY:-0}" = 1 ] || return 1
+    case "$1" in status) return 1 ;; esac
+    have flock || return 1
+    return 0
+}
+
 app_run_verb() {
     local name="$1" verb="$2"; shift 2
     app_load "$name"
     app_verb_impl "$name" "$verb" \
         || die "app '$name' (kind=$APP_KIND) has no implementation for '$verb'"
-    dbg "dispatch $name/$verb -> $IMPL $IMPL_ARG"
+    if _lock_needed "$verb"; then
+        local lock="$HOMELAB_LOCKS/$name.lock" rc errexit=0
+        case "$-" in *e*) errexit=1 ;; esac
+        $SUDO mkdir -p "$HOMELAB_LOCKS" 2>/dev/null || true
+        set +e
+        (
+            exec 9>>"$lock" || { warn "$name: cannot open $lock, running without a lock"; exec 9>/dev/null; }
+            if ! flock -n 9; then
+                log "$name is busy: $(cat "$lock.who" 2>/dev/null || echo 'another command'). waiting (up to ${HOMELAB_LOCK_WAIT}s)"
+                flock -w "$HOMELAB_LOCK_WAIT" 9 || die "$name is still busy after ${HOMELAB_LOCK_WAIT}s: $(cat "$lock.who" 2>/dev/null || echo 'another command'). try again later"
+            fi
+            printf '%s since %s (pid %s)\n' "$verb" "$(date +%H:%M:%S)" "$$" > "$lock.who" 2>/dev/null || true
+            _app_exec_verb "$verb" "$@"
+        )
+        rc=$?
+        # Put errexit back the way the caller had it. Callers turn it off to
+        # read a verb's exit code (2 = nothing to do); forcing it back on
+        # here would make that 2 kill them.
+        if [ "$errexit" = 1 ]; then set -e; fi
+        return $rc
+    fi
+    _app_exec_verb "$verb" "$@"
+}
+
+_app_exec_verb() {
+    local verb="$1"; shift
+    dbg "dispatch $APP_NAME/$verb -> $IMPL $IMPL_ARG"
     HOMELAB_ROOT="$HOMELAB_ROOT" HOMELAB_APPLY="${HOMELAB_APPLY:-0}" \
     HOMELAB_DEBUG="${HOMELAB_DEBUG:-0}" \
     APP_NAME="$APP_NAME" APP_DIR="$APP_DIR" APP_STATE="$APP_STATE" \

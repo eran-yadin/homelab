@@ -2,6 +2,13 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.9.1 - 2026-11-27
+
+- engine: one command per app at a time. Every verb that can change an app (everything but `status`, and only with `--apply`) holds a per-app lock in `/run/homelab/locks`; a second command on the same app says it is busy and waits for the first, up to 15 minutes. On nucserver a hub Install of manyfold was still pulling when Start was pressed, both ran `docker compose up`, and the install died on "container name already in use". The nightly backup takes the same lock, so it never pauses an app mid-install
+- backup: offsite copy, pulled rather than pushed -- the machine that keeps it is often off at 03:30. The backup app now creates `homelab-offsite`, a user that can only read the nightly folder: its keys are forced through `rrsync -ro`. `homelab offsite allow "<ssh key>" --apply` adds a machine; `apps/backup/files/install-puller.sh` sets that machine up (a key of its own, a systemd user timer that pulls daily and soon after boot, `gzip -t` on the newest night). The backup app reads `degraded` when an allowed machine has not pulled for 3 days
+- engine: `backup` of a kind=systemd app stops its main unit for the copy and starts it again after, even on failure. netmon writes its SQLite every few seconds, so `tar` failed now and then with "file changed as we read it" (exit 1), and when it did not fail the copy could be torn. Adopted services (AMP) are not stopped
+- backup: each night's folder is group-readable by `homelab-offsite`, nothing else; the backup root is 0750
+
 ## v1.9.0 - 2026-11-27
 
 - backup: a new app, `homelab install backup`. A systemd timer runs `homelab backup --all /var/lib/homelab/backups/nightly` at 03:30 (made up at boot if the box was off), backing up every installed app that has `stateful=1`. Keeps the newest run of each of the last 7 days and of the last 4 Sundays. A run is written to `.partial-<stamp>` and renamed when it finishes, so a dated folder is always a whole night. The hub shows the app `running` while the timer is armed and `degraded` when the last run failed. `--purge` keeps the backups

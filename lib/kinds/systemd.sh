@@ -227,6 +227,19 @@ backup)
     run mkdir -p "$dest"
     paths="${APP_BACKUP_PATHS:-}"
     [ -n "$paths" ] || die "$APP_NAME declares no backup_paths in app.conf"
+    # A running service keeps writing (netmon's SQLite, every few seconds),
+    # and tar then fails with "file changed as we read it" -- or, worse, gets
+    # a torn copy. Stop it for the copy and start it again after, even if the
+    # copy fails. Only the main unit: companions such as a web UI only read.
+    # An adopted service (AMP) is not ours to stop; it is copied live.
+    restart_after=0
+    if [ "${APP_ADOPTED:-0}" != 1 ] && unit_active; then
+        log "$APP_NAME: stopping $UNIT for the copy"
+        run $SUDO systemctl stop "$UNIT"
+        restart_after=1
+        # shellcheck disable=SC2064
+        trap "run $SUDO systemctl start '$UNIT' || true" EXIT
+    fi
     for p in $paths; do
         [ -e "$p" ] || { warn "$APP_NAME: $p does not exist, skipping"; continue; }
         n="$(printf '%s' "$p" | tr '/' '_' | sed 's/^_//')"
@@ -238,6 +251,11 @@ backup)
             run_sh "systemctl cat '$u' > '$dest/$u' 2>/dev/null || true"
         fi
     done
+    if [ "$restart_after" = 1 ]; then
+        run $SUDO systemctl start "$UNIT"
+        trap - EXIT
+        log "$APP_NAME: $UNIT started again"
+    fi
     ok "$APP_NAME: backed up to $dest"
     ;;
 

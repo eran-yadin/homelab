@@ -22,7 +22,7 @@ Running on **nucserver** (10.0.0.5) since 2026-08-30.
 - [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds
 - [x] `tests/conformance.sh` — drives every app through its whole lifecycle
 - [x] **backup / restore / `migrate`** — verified end to end against the live paperless data
-- [x] **nightly backup** — the `backup` app: `homelab backup --all` at 03:30 from a systemd timer, keeps 7 days + 4 Sundays in `/var/lib/homelab/backups/nightly`. Same disk as the data, so not yet a real offsite copy
+- [x] **nightly backup** — the `backup` app: `homelab backup --all` at 03:30 from a systemd timer, keeps 7 days + 4 Sundays in `/var/lib/homelab/backups/nightly`. An offsite machine pulls it read-only (`homelab offsite allow`, `apps/backup/files/install-puller.sh`)
 - [x] adopting the services already running on nucserver (AMP, Cockpit, Feishin)
 - [x] **deployed to nucserver** — hub on :7070, caddy fronting :80, nginx retired
 - [x] **Immich** installed on nucserver (v1.1.0)

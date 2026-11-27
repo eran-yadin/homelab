@@ -38,4 +38,38 @@ WantedBy=timers.target
 UNIT
 
 run $SUDO systemctl daemon-reload
+
+# --- offsite: another machine pulls the nightly folder --------------------
+# The NUC does not push: the other machine (the rig) is often off at 03:30.
+# It pulls instead, whenever it is on, as a user that can only READ this one
+# folder: its key is forced through rrsync -ro, so it cannot run commands,
+# write, or see anything outside $ROOT. Keys are added with
+# `homelab offsite allow "<ssh public key>"`.
+OFF_USER=homelab-offsite
+OFF_HOME=/var/lib/homelab-offsite
+log "installing rsync (for the offsite pull)"
+run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync
+if id "$OFF_USER" >/dev/null 2>&1; then
+    ok "user $OFF_USER already exists"
+else
+    log "creating $OFF_USER (read-only access to the backups, for the offsite pull)"
+    # A real shell: sshd runs the forced command through it. The account has
+    # no password, and authorized_keys forces every login into the pull.
+    run $SUDO useradd --system --home-dir "$OFF_HOME" --create-home --shell /bin/sh "$OFF_USER"
+fi
+run $SUDO install -d -m 0750 -o "$OFF_USER" -g "$OFF_USER" "$OFF_HOME" "$OFF_HOME/.ssh"
+run_write /usr/local/lib/homelab/offsite-pull 0755 <<PULL
+#!/bin/sh
+# Forced command for $OFF_USER (see authorized_keys). Read-only rsync of the
+# nightly backups, then a timestamp the backup app's status reads.
+/usr/bin/rrsync -ro $ROOT
+rc=\$?
+if [ "\$rc" = 0 ]; then date +%s > $OFF_HOME/last-pull; fi
+exit "\$rc"
+PULL
+# The backup root itself: root writes, the offsite group reads.
+run $SUDO mkdir -p "$ROOT"
+run $SUDO chgrp "$OFF_USER" "$ROOT"
+run $SUDO chmod 0750 "$ROOT"
+
 ok "backup: runs $WHEN into $ROOT (start it to arm the timer)"

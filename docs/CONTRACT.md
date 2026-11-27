@@ -177,6 +177,12 @@ run of each of the last `--keep-daily` days (7) and of the last `--keep-weekly`
 Sundays (4). One app failing does not stop the others; the command exits 1 at
 the end. The `backup` app runs it nightly from a systemd timer.
 
+Every verb except `status` takes a per-app lock (`/run/homelab/locks/<app>.lock`,
+only with `--apply`). A second command on the same app waits for the first,
+up to `HOMELAB_LOCK_WAIT` seconds (900), and says what it is waiting for. An
+app script must therefore never call `homelab <verb>` on its own app: it would
+wait on itself.
+
 Prefer this over an application's own export where one exists. A volume
 archive is a byte-for-byte copy; an app-level exporter re-serialises through
 its own model layer and can silently omit rows. Measured, not theoretical:
