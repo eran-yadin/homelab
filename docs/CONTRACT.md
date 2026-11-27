@@ -118,6 +118,8 @@ the hub.
 | `purge_users` | — | kind=systemd: system users removed by `--purge` |
 | `oneshot` | — | compose services that run once and exit (init/migration); excluded from the running and total counts |
 | `bulk_volumes` | — | kind=compose: volumes an update never rewrites (a photo library). The backup `update` takes before recreating a `stateful=1` app skips them; `backup` still archives everything |
+| `cache_volumes` | — | kind=compose: volumes holding only files the app fetches again (model weights). The nightly `backup --all` leaves them out; a plain `backup` still archives them |
+| `nightly` | `1` | `0` leaves a `stateful=1` app out of `backup --all`, for data too big to copy every night (AMP's game installs). `backup <app>` still works |
 | `health_url` | — | probed from the host when the container reports no health of its own — the only option for a distroless image with no shell |
 | `conflicts` | — | things that cannot coexist, e.g. `unit:nginx.service`. Checked before `start` |
 | `adopted` | `0` | this app already exists on the host; homelab controls it but will not install or remove it |
@@ -160,6 +162,20 @@ for a restore; use `download`.
 `backup` writes one archive per named volume plus the app's `.env`, so
 generated secrets travel with the data. That file is as sensitive as the
 backup itself.
+
+For a kind=compose app, `backup` pauses the app's running containers
+(`docker pause`) for the length of the copy and resumes them after, even if
+the copy fails. A frozen database writes nothing, so the archive is what a
+power cut at that instant would leave, which postgres and SQLite recover
+from. Pause, not stop: stop + start would recreate the containers, and `start`
+refuses on a stack homelab did not create.
+
+`homelab backup --all <root>` runs `backup` for every installed app with
+`stateful=1` into `<root>/<YYYY-MM-DD_HHMMSS>/<app>/`, writes a `SUMMARY`,
+points `<root>/latest` at it, and then deletes old runs: it keeps the newest
+run of each of the last `--keep-daily` days (7) and of the last `--keep-weekly`
+Sundays (4). One app failing does not stop the others; the command exits 1 at
+the end. The `backup` app runs it nightly from a systemd timer.
 
 Prefer this over an application's own export where one exists. A volume
 archive is a byte-for-byte copy; an app-level exporter re-serialises through

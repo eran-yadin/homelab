@@ -23,6 +23,8 @@ DETACH=0
 CHANNEL=stable
 TO_TAG=""
 HOMELAB_YES=0
+KEEP_DAILY=7
+KEEP_WEEKLY=4
 export HOMELAB_APPLY
 
 usage() {
@@ -66,6 +68,13 @@ usage: homelab <command> [app] [options]
   delete <app> [--purge] --purge also destroys its data
 
   backup <app> <dir>
+  backup --all <root> [--keep-daily N] [--keep-weekly N]
+                         back up every installed app that holds data into
+                         <root>/<date_time>/<app>, pausing each app for its
+                         copy, then delete old runs: keeps the newest run of
+                         each of the last N days (7) and of the last N
+                         Sundays (4). Caches (cache_volumes=) are left out.
+                         This is what the `backup` app's nightly timer runs.
   restore <app> <dir>
   migrate <app> --from [user@]host:/dir
                          fetch a backup from another machine and bring the app
@@ -99,6 +108,8 @@ while [ $# -gt 0 ]; do
         --yes|-y) HOMELAB_YES=1 ;;
         --channel) shift; CHANNEL="${1:-}" ;;
         --to)     shift; TO_TAG="${1:-}" ;;
+        --keep-daily)  shift; KEEP_DAILY="${1:-}" ;;
+        --keep-weekly) shift; KEEP_WEEKLY="${1:-}" ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -785,10 +796,114 @@ cmd_delete() {
 }
 
 cmd_backup() {
+    if [ "$ALL" = 1 ]; then cmd_backup_all; return; fi
     local n="${ARGS[0]:?usage: homelab backup <app> <dir>}"
     local d="${ARGS[1]:?usage: homelab backup <app> <dir>}"
     banner_mode
     app_run_verb "$n" backup "$d"
+}
+
+# Which apps `backup --all` covers: everything in the catalog that holds data
+# (stateful=1), is on this host (status is not absent), has a backup to run
+# (kind=container has none unless the app brings its own backup.sh), and has
+# not opted out with nightly=0.
+backup_all_apps() {
+    local n line st
+    for n in $(catalog_names); do
+        app_load "$n"
+        [ "$APP_STATEFUL" = 1 ] || continue
+        if [ "$APP_NIGHTLY" = 0 ]; then
+            warn "$n: skipped, its app.conf says nightly=0" >&2
+            continue
+        fi
+        if [ "$APP_KIND" = container ] && [ ! -x "$APP_DIR/backup.sh" ]; then continue; fi
+        line="$(app_run_verb "$n" status 2>/dev/null || true)"
+        st="$(printf '%s' "$line" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')"
+        case "$st" in ""|absent) continue ;; esac
+        printf '%s\n' "$n"
+    done
+}
+
+# Delete old runs under <root>. A run is a directory named YYYY-MM-DD_HHMMSS.
+# Keep the newest run of each of the last KEEP_DAILY days that have one, and
+# the newest run of each of the last KEEP_WEEKLY Sundays; delete the rest.
+backup_prune() {  # backup_prune <root> <run-just-made>
+    local root="$1" current="$2" d day keep=" " days=0 weeks=0 seen=" "
+    local runs; runs="$(cd "$root" 2>/dev/null && ls -1d 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9]* 2>/dev/null | sort -r || true)"
+    for d in $runs; do
+        day="${d%%_*}"
+        case "$seen" in *" $day "*) continue ;; esac     # an older run of a day already kept
+        seen="$seen$day "
+        if [ "$days" -lt "$KEEP_DAILY" ]; then keep="$keep$d "; days=$((days+1)); fi
+        if [ "$weeks" -lt "$KEEP_WEEKLY" ] && [ "$(date -d "$day" +%u 2>/dev/null)" = 7 ]; then
+            keep="$keep$d "; weeks=$((weeks+1))
+        fi
+    done
+    keep="$keep$current "
+    for d in $runs; do
+        case "$keep" in *" $d "*) continue ;; esac
+        log "removing old backup $root/$d"
+        run rm -rf "${root:?}/$d"
+    done
+    # A run that died half way (power cut) leaves a .partial- directory behind.
+    for d in "$root"/.partial-*; do
+        [ -d "$d" ] || continue
+        log "removing an unfinished backup $d"
+        run rm -rf "$d"
+    done
+}
+
+cmd_backup_all() {
+    local root="${ARGS[0]:?usage: homelab backup --all <root>}"
+    case "$KEEP_DAILY$KEEP_WEEKLY" in *[!0-9]*|"") die "--keep-daily and --keep-weekly take a number" ;; esac
+    [ "$KEEP_DAILY" -ge 1 ] || die "--keep-daily must be at least 1"
+    case "$root" in /*) ;; *) die "backup --all needs an absolute path, got: $root" ;; esac
+    banner_mode
+
+    local apps; apps="$(backup_all_apps)"
+    [ -n "$apps" ] || { warn "no installed app holds data; nothing to back up"; return 0; }
+
+    local stamp; stamp="$(date +%Y-%m-%d_%H%M%S)"
+    local part="$root/.partial-$stamp" final="$root/$stamp"
+    log "backing up: $(tr '\n' ' ' <<<"$apps")-> $final"
+    # The archives hold every app's data and its .env secrets: root only.
+    run mkdir -p "$root"
+    run chmod 0700 "$root"
+    run mkdir -p "$part"
+
+    local n rc t0 secs size failed="" summary=""
+    for n in $apps; do
+        log "--- $n ---"
+        t0=$(date +%s)
+        set +e
+        HOMELAB_BACKUP_SKIP_CACHE=1 app_run_verb "$n" backup "$part/$n"
+        rc=$?
+        set -e
+        secs=$(( $(date +%s) - t0 ))
+        size="-"
+        if is_apply && [ -d "$part/$n" ]; then size="$(du -sh "$part/$n" 2>/dev/null | cut -f1)"; fi
+        if [ "$rc" = 0 ]; then
+            summary="$summary$n ok ${secs}s $size"$'\n'
+        else
+            failed="$failed$n "
+            summary="$summary$n FAILED(exit $rc) ${secs}s $size"$'\n'
+            err "$n: backup failed (exit $rc); carrying on with the rest"
+        fi
+    done
+
+    # Only a finished run gets a real name, so a folder named by date is
+    # always a whole night, never half of one.
+    printf '%s' "$summary" | run_write "$part/SUMMARY" 0600
+    run mv "$part" "$final"
+    run ln -sfn "$stamp" "$root/latest"
+    printf '%s' "$summary" | sed 's/^/    /' >&2
+
+    backup_prune "$root" "$stamp"
+
+    if [ -n "$failed" ]; then
+        die "backup finished with failures: ${failed% } (the rest are in $final)"
+    fi
+    ok "backup done: $final"
 }
 
 cmd_restore() {

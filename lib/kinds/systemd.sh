@@ -144,6 +144,9 @@ delete)
     done
     run $SUDO systemctl disable --now "$UNIT"
     run $SUDO rm -f "/etc/systemd/system/$UNIT"
+    # A .timer (the backup app) or .path main unit activates the same-named
+    # .service, which is part of the app too.
+    case "$UNIT" in *.timer|*.path) run $SUDO rm -f "/etc/systemd/system/${UNIT%.*}.service" ;; esac
     run $SUDO systemctl daemon-reload
     if [ "$purge" -eq 1 ]; then
         warn "$APP_NAME: --purge removes its data directories too"
@@ -181,8 +184,22 @@ status)
         fi
     fi
 
+    # A timer is "running" while it is armed. What it runs is a oneshot
+    # service, so whether the job works shows only in that service's last
+    # result: a failed last run reads as degraded.
+    job_failed=""
+    case "$UNIT" in *.timer)
+        job="${UNIT%.timer}.service"
+        jres="$(systemctl show -p Result --value "$job" 2>/dev/null || true)"
+        if [ -n "$jres" ] && [ "$jres" != success ]; then job_failed="last run of $job: $jres"; fi
+        ;;
+    esac
+
     down="$(extras_down)"
-    if [ "$probe" = up ]; then
+    if [ -n "$job_failed" ] && unit_active; then
+        state=degraded
+        health="$job_failed"
+    elif [ "$probe" = up ]; then
         state=running
         health=healthy
     elif unit_active && [ -n "$down" ]; then

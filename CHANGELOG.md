@@ -2,6 +2,16 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.9.0 - 2026-11-27
+
+- backup: a new app, `homelab install backup`. A systemd timer runs `homelab backup --all /var/lib/homelab/backups/nightly` at 03:30 (made up at boot if the box was off), backing up every installed app that has `stateful=1`. Keeps the newest run of each of the last 7 days and of the last 4 Sundays. A run is written to `.partial-<stamp>` and renamed when it finishes, so a dated folder is always a whole night. The hub shows the app `running` while the timer is armed and `degraded` when the last run failed. `--purge` keeps the backups
+- engine: `homelab backup --all <root> [--keep-daily N] [--keep-weekly N]`. One app failing does not stop the rest; it is marked FAILED in the run's `SUMMARY` and the command exits 1 at the end
+- engine: `backup` of a compose app now pauses its running containers (`docker pause`) for the copy and resumes them after, even on failure. Before, a backup of a running postgres was a copy of files being written to. Pause rather than stop, because stop + start would recreate the containers, and `start` refuses on nucserver's paperless, whose stack homelab did not create. alpine (the copier) is pulled before the pause, not during it
+- engine: `cache_volumes=` in app.conf -- volumes that hold only re-downloadable files. The nightly backup skips them: transcribe's `models`, immich's `model-cache` and ollama's `models` are ~8 GB of nucserver's ~10 GB of volumes
+- engine: `nightly=0` in app.conf leaves an app out of `backup --all`. Set on amp: `/home/amp/.ampdata` holds whole game installs (TF2 Classified), far too big to copy every night; its worlds and configs need a narrower backup of their own
+- engine: kind=systemd with a `.timer` as its main unit: `status` reads the last result of the service it fires, and `delete` removes that service file too
+- Verified in the test VM: conformance 15/15 for `backup`; a nightly run fired by systemd; a vaultwarden file deleted and brought back by `restore` from the nightly copy; a failing app reported as FAILED and the app shown `degraded`, then `running` again after a clean run; 40 fake nights pruned to exactly 7 days + 4 Sundays
+
 ## v1.8.3 - 2026-10-30
 
 - transcribe: pin v0.3.0 -> v0.4.0. The search index becomes external-content, so search results finally carry a highlighted excerpt and a recording can be deleted from the UI at all; existing databases migrate themselves on first start. Also a `phase` field so "downloading a 1.6 GB model" stops reading as "transcribing", and every `app.logger.info` line in the app now actually prints -- they had been discarded since the first commit

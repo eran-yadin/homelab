@@ -208,6 +208,16 @@ _is_bulk() {
     return 1
 }
 
+# A volume declared as cache_volumes="name ..." holds only files the app can
+# fetch again (model weights). The nightly backup (`backup --all`, which sets
+# HOMELAB_BACKUP_SKIP_CACHE=1) leaves them out: on nucserver they are ~8 GB of
+# the ~10 GB total, and copying them every night protects nothing.
+_is_cache() {
+    local b
+    for b in ${APP_CACHE_VOLUMES:-}; do [ "$b" = "$1" ] && return 0; done
+    return 1
+}
+
 _do_backup() {  # _do_backup <dest> <skip-bulk 0|1>
     local dest="$1" skip="${2:-0}" vols v short
     run mkdir -p "$dest"
@@ -217,6 +227,10 @@ _do_backup() {  # _do_backup <dest> <skip-bulk 0|1>
         short="${v#"${APP_NAME}"_}"
         if [ "$skip" = 1 ] && _is_bulk "$short"; then
             log "$APP_NAME: skipping $v (bulk media, not touched by an update)"
+            continue
+        fi
+        if [ "${HOMELAB_BACKUP_SKIP_CACHE:-0}" = 1 ] && _is_cache "$short"; then
+            log "$APP_NAME: skipping $v (cache, the app fetches it again)"
             continue
         fi
         log "$APP_NAME: archiving volume $v"
@@ -539,7 +553,38 @@ backup)
     need_docker
     dest="${1:-}"; [ -n "$dest" ] || die "backup needs a destination directory"
     ensure_state_dir
+    # Copying the files of a running database gives a torn copy: postgres keeps
+    # writing while tar walks the directory. Freeze the app's containers for
+    # the length of the copy instead of stopping them. A frozen process writes
+    # nothing, so the copy is what a power cut at that instant would leave,
+    # which postgres and SQLite both recover from. Pause rather than stop,
+    # because stop + start would recreate the containers, and `start` refuses
+    # (rightly) on a stack homelab did not create -- nucserver's paperless.
+    paused=""
+    if [ "${#DK[@]}" -gt 0 ]; then
+        paused="$("${DK[@]}" ps --filter "label=com.docker.compose.project=$APP_NAME" \
+                   --filter status=running -q 2>/dev/null | tr '\n' ' ' || true)"
+    fi
+    if [ -n "$paused" ]; then
+        # The copy runs in an alpine container. Fetch it first, or the very
+        # first backup on a box holds the app frozen for the whole download.
+        if ! "${DK[@]}" image inspect alpine >/dev/null 2>&1; then
+            run "${DK[@]}" pull -q alpine >/dev/null
+        fi
+        log "$APP_NAME: pausing its containers for the copy"
+        # shellcheck disable=SC2086
+        run "${DK[@]}" pause $paused >/dev/null
+        # Whatever happens next, the app comes back.
+        # shellcheck disable=SC2064,SC2086
+        trap "run ${DK[*]} unpause $paused >/dev/null || true" EXIT
+    fi
     _do_backup "$dest" 0
+    if [ -n "$paused" ]; then
+        # shellcheck disable=SC2086
+        run "${DK[@]}" unpause $paused >/dev/null
+        trap - EXIT
+        log "$APP_NAME: resumed"
+    fi
     ok "$APP_NAME: backed up to $dest"
     ;;
 
