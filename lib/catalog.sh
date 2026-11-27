@@ -120,15 +120,20 @@ app_run_verb() {
     if _lock_needed "$verb"; then
         local lock="$HOMELAB_LOCKS/$name.lock" rc errexit=0
         case "$-" in *e*) errexit=1 ;; esac
-        $SUDO mkdir -p "$HOMELAB_LOCKS" 2>/dev/null || true
+        # Sticky and world-writable like /tmp: the hub and the timer run as
+        # root, a person at the CLI may not, and all of them must share a lock.
+        if [ ! -d "$HOMELAB_LOCKS" ]; then
+            $SUDO mkdir -p "$HOMELAB_LOCKS" 2>/dev/null && $SUDO chmod 1777 "$HOMELAB_LOCKS" 2>/dev/null || true
+        fi
         set +e
         (
-            exec 9>>"$lock" || { warn "$name: cannot open $lock, running without a lock"; exec 9>/dev/null; }
+            { exec 9>>"$lock"; } 2>/dev/null || { warn "$name: cannot open $lock, running without a lock"; exec 9>/dev/null; }
+            chmod 0666 "$lock" 2>/dev/null || true
             if ! flock -n 9; then
                 log "$name is busy: $(cat "$lock.who" 2>/dev/null || echo 'another command'). waiting (up to ${HOMELAB_LOCK_WAIT}s)"
                 flock -w "$HOMELAB_LOCK_WAIT" 9 || die "$name is still busy after ${HOMELAB_LOCK_WAIT}s: $(cat "$lock.who" 2>/dev/null || echo 'another command'). try again later"
             fi
-            printf '%s since %s (pid %s)\n' "$verb" "$(date +%H:%M:%S)" "$$" > "$lock.who" 2>/dev/null || true
+            { printf '%s since %s (pid %s)\n' "$verb" "$(date +%H:%M:%S)" "$$" > "$lock.who"; chmod 0666 "$lock.who"; } 2>/dev/null || true
             _app_exec_verb "$verb" "$@"
         )
         rc=$?

@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.11.0 - 2026-11-27
+
+- adguard: sets itself up. The first start does the setup wizard's job (an admin account, its password generated and kept only in the app's `.env`), and every start writes `*.nuc` rules: home devices get the LAN address, tailnet devices the tailscale address, so `hub.nuc` works away from home too. Rules added by hand are kept. Calls wait for AdGuard's API rather than its web server, which answers first and 404s the API for a few seconds after a restart
+- engine: the per-app lock directory is sticky and world-writable (1777) and its files 0666, so a lock taken by the hub or the timer (root) is shared with a person at the CLI instead of failing with "Permission denied"
+
 ## v1.10.0 - 2026-11-27
 
 - firewall: a new app. One nftables table (`inet homelab`) beside docker's and tailscale's rules: lets in loopback, replies, ping, the tailnet, the LAN subnet, containers and tailscale direct connections (udp 41641), and drops the rest -- on the host and towards containers, IPv4 and IPv6. nucserver has a public IPv6 address, which the ISP's CGNAT does not cover, and every service listened on `[::]`. Settings in `/etc/homelab/firewall.conf`, detected once (LAN subnet), with room for friends' ports on Hamachi and public ports; values are validated before they reach the ruleset, and a ruleset that does not parse is never installed
