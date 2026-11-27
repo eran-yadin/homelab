@@ -32,14 +32,17 @@ Running on **nucserver** (10.0.0.5) since 2026-08-30.
 
 ## What is deployed
 
+On nucserver, v1.12.2 (2026-11-27). Every app also answers on `http://<app>.nuc`.
+
 | | |
 |---|---|
 | hub | `:7070`, and `http://10.0.0.5/` through caddy |
-| immich | `:2283` — four containers, data in `immich_library` / `immich_pgdata` |
-| caddy | `:80` / `:443`, host networking, routes generated from the catalog into `/etc/caddy/sites` |
-| routes | `hub.nuc` `paperless.nuc` `transcribe.nuc` `amp.nuc` `cockpit.nuc` `feishin.nuc` — they need DNS (AdGuard, the router, or a hosts file); rerun `homelab download caddy --apply` after installing an app to add its route |
-| adopted | amp (`ampinstmgr`), cockpit (`cockpit.socket`), feishin (a bare `docker run` container) |
-| retired | nginx — disabled, not purged, so the swap reverses with one command |
+| caddy | `:80`, host networking, one `http://<app>.nuc` route per installed app in `/etc/caddy/sites`; `homelab download caddy --apply` regenerates them and restarts caddy |
+| adguard | DNS on `:53`, dashboard `:3080`; answers `*.nuc` with the LAN address for home devices and the tailscale address for the tailnet |
+| firewall | nftables `inet homelab`: LAN + tailnet + containers in, everything else dropped (IPv4 and IPv6) |
+| backup | nightly at 03:30 into `/var/lib/homelab/backups/nightly`, 7 days + 4 Sundays; an offsite machine pulls it read-only |
+| apps | paperless (its own compose), immich, jellyfin (QuickSync), samba, home-assistant, transcribe, manyfold, navidrome, syncthing, uptime-kuma; stopped: amp, netmon, ollama |
+| adopted | amp (`ampinstmgr`), cockpit (`cockpit.socket`) |
 
 The hub's sudoers rule is scoped to `/opt/homelab/homelab` plus `systemctl
 reboot|poweroff`, replacing the previous `systemctl start *` wildcard, which

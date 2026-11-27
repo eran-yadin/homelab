@@ -61,6 +61,10 @@ scripts at all**. Then test it in the VM, never on the NUC first.
   from `~/paperless/docker-compose.yml`; the engine refuses to recreate
   containers built from a different compose file, so it is safe from us. Taking
   it over means backup → bring the old stack down → restore → start.
+- **since 2026-11-27 (sprints 1-10)**: backup (nightly, offsite pull user
+  `homelab-offsite`), firewall (confirm-or-rollback), adguard (`*.nuc`),
+  jellyfin (QuickSync), samba, home-assistant. Notes per sprint live in the
+  owner's Obsidian vault, not here.
 - **netmon** has a web UI (`netmon-web.service`, :8095) and a root-side
   helper (`netmon-control.path`) declared as `extra_units`. Its settings live in
   `/var/lib/netmon/settings.env`, not the unit; `download.sh` carries a
@@ -106,9 +110,27 @@ Each of these cost a debugging cycle. Do not rediscover them.
   After any revert, compare `/opt/homelab/apps/<app>/` against
   `git ls-tree <tag> apps/<app>/` and delete what the tag does not carry.
 
+- **Caddy has `admin off`**, so `caddy reload` can never work: regenerating
+  routes restarts the container. And a bare `name.nuc {` site is HTTPS on :443
+  even with `auto_https off`; routes must be `http://name.nuc {`, or every
+  name falls through to the catch-all (the hub).
+- **Current Home Assistant ignores `http:` in configuration.yaml** after its
+  first start: it copied it once into `.storage/http` (`yaml_migration_done`).
+  Edit the storage file, with the container stopped.
+- **Through docker's port publishing, tailnet clients look like the bridge
+  gateway (172.x)** to the container (docker-proxy). An app that must tell
+  clients apart (AdGuard's per-network rules) needs host networking.
+- **`docker pause` during a backup** can leave a container `unhealthy` until
+  its next health check (immich_postgres: up to 5 minutes). Harmless.
+- **The test VM stalls on large ghcr.io layer downloads** (Home Assistant,
+  manyfold); Docker Hub images come through fine.
+
 ## Verifying
 
 ```
 tests/conformance.sh [app]     # full lifecycle; refuses outside the test VM
 tests/checkjs.py               # hub JS structure (no JS engine on this machine)
 ```
+
+GitHub Actions (`.github/workflows/check.yml`) runs `bash -n`, shellcheck
+(errors fail), the hub's python and `checkjs.py` on every push.
