@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.13.1 - 2026-11-27
+
+- home-assistant: removes the `http:` block v1.12.1 appended to `configuration.yaml`. Current versions ignore it (the setting lives in `.storage/http` since v1.12.2) and raised a Repair warning, "HTTP YAML configuration is ignored after migration", which stops working in 2027.2. Only homelab's own block, matched line for line from its marker comment, is taken out
+
 ## v1.13.0 - 2026-11-27
 
 - hub: a Settings page (`/settings`, linked from the header). Backup: the time, how many days and Sundays to keep, and per app Everything / Without photos and media / Skip, plus Back up now. Offsite: the machines allowed to pull, add or remove one, and after how many days a missing pull warns. Firewall: home network, ports for Hamachi friends and for the internet, Save and apply, then a countdown with Keep it. Updates: show when a release is out, stable or main channel. App tokens for unified search (kept in the hub's state, 0600, never shown again). Credentials stay locked while the hub has no login of its own
