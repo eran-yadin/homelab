@@ -16,7 +16,7 @@ Running on **nucserver** (10.0.0.5) since 2026-08-30.
 - [x] **`homelab` CLI** — detect / list / info / setup / install / download / start / stop / restart / update / delete / status / backup / restore / migrate / deploy / update self / version
 - [x] **`homelab setup`** — pick apps from the store on a new machine, dependencies resolved for you
 - [x] inherited implementations for `kind=compose`, `kind=systemd`, `kind=container`
-- [x] **24 apps**, most of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
+- [x] **25 apps**, most of them declarative only (an `app.conf` and a `compose.yml`, no scripts)
 - [x] **hub** — web front end, custom filters, reboot, Local/Tailscale link toggle, an **Update** button with a live progress page, the deployed version, and a [/docs](hub/docs.html) page
 - [x] **releases** — git tags; `homelab update self` installs the newest tag, backs up first, smoke-tests, rolls back on failure. See [CHANGELOG.md](CHANGELOG.md)
 - [x] **`testenv/`** — disposable Debian 13 QEMU VM, resets in seconds

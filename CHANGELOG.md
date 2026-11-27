@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.12.0 - 2026-11-27
+
+- samba: a new app, Windows file shares. `\\<host>\media` (Jellyfin's library), `\\<host>\share`, and `3dmodels` when Manyfold's folder exists; set in `/etc/homelab/samba.conf`. One user, the box owner, with a generated password in the app's `.env`. SMB2 and up only, no guest, `hosts allow` limited to private ranges and the tailnet on top of the firewall app. Debian's default `smb.conf` (which also shares every home directory and printer drivers) is set aside as `smb.conf.debian` and put back by `delete`. The app counts as installed by its share config, since smbd's unit stays with the package. A reinstall after `--purge` sets a new password even though Samba's own user database kept the account
+
 ## v1.11.2 - 2026-11-27
 
 - jellyfin: actually transcode on the GPU. Passing `/dev/dri` into the container only makes the chip visible: Jellyfin's own `HardwareAccelerationType` stayed `none`, so every transcode on nucserver ran on its 2-core CPU while the HD 620 sat idle (`vainfo` in the container: Intel iHD driver, H.264/HEVC encode + decode). The first start after the wizard sets QuickSync on `/dev/dri/renderD128` and hardware decoding for h264, hevc, mpeg2, vc1, vp8, vp9, then restarts Jellyfin. Once only (marker file), so a later choice in Jellyfin's dashboard is kept
