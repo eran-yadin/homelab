@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.17.1 - 2026-11-27
+
+- hub: Jellyfin and its download stack (qBittorrent, Prowlarr, Radarr, Sonarr, Lidarr, Seerr) share a `jellyfin` category, so they sit under one filter tab with one colour instead of being spread through `media`
+
 ## v1.17.0 - 2026-11-27
 
 - media stack, as on home-server-kit: six new apps. **qBittorrent** 5.3.1 (downloads, web UI on 8090 since AMP has 8080), **Prowlarr** 3.1.0 (the download sources, one place for all; starts with none), **Radarr** 7.0.3 / **Sonarr** 4.0.20 / **Lidarr** 3.1.6 (pick and file movies, shows, music), **Seerr** v3.5.2 (requests, signs in with Jellyfin accounts). All pinned, all from Docker Hub. They work in `/media` = the same `/srv/media` Jellyfin reads, with downloads in `/srv/media/downloads`, so a finished file is moved or hard-linked into Movies/Shows/Music instead of copied. Files are written as the box owner, so Jellyfin and Samba read them. Each has its own hub card and `<app>.nuc` route; the firewall keeps all of them to the LAN and the tailnet. Connecting them to each other is a one-time step in their settings, as on the kit (docs/COMMANDS.md, "Media stack")
