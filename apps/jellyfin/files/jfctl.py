@@ -35,6 +35,8 @@ def api(path, body=None, method=None):
             data = r.read()
             return json.loads(data) if data else None
     except urllib.error.HTTPError as e:
+        if e.code == 503:
+            die("Jellyfin is still starting; try again in a minute")
         die(f"Jellyfin answered {e.code}: {e.read().decode(errors='replace')[:200]}")
     except urllib.error.URLError as e:
         die(f"Jellyfin is not answering at {API}: {e.reason}")

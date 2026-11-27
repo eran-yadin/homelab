@@ -44,7 +44,7 @@ ensure_key() {
     $SUDO python3 - "$db" "$tok" <<'PY'
 import sqlite3, sys, datetime
 db, tok = sys.argv[1], sys.argv[2]
-now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f0")
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f0")
 c = sqlite3.connect(db)
 c.execute('INSERT INTO ApiKeys (DateCreated, DateLastActivity, Name, AccessToken) VALUES (?,?,?,?)', (now, now, "homelab", tok))
 c.commit(); c.close()
@@ -52,7 +52,9 @@ PY
     printf '%s\n' "$tok" | $SUDO tee "$KEY" >/dev/null
     $SUDO chmod 0600 "$KEY"
     run "${DK[@]}" start jellyfin >/dev/null
-    for _ in $(seq 1 60); do curl -fsS -o /dev/null "$API/health" 2>/dev/null && break; sleep 1; done
+    # /health answers before the API does (503 "starting" for a few more
+    # seconds): wait for an API route to answer.
+    for _ in $(seq 1 90); do curl -fsS -o /dev/null "$API/System/Info/Public" 2>/dev/null && break; sleep 1; done
 }
 
 jf() {  # jf <args...>: run jfctl.py with the key on stdin (never on the command line)

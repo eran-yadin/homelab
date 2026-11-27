@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.15.1 - 2026-11-27
+
+- jellyfin: after making its API key, homelab waits for Jellyfin's API rather than `/health`, which answers a few seconds earlier while the API still returns 503 "starting". Seen on nucserver's first run; a 503 now says "still starting" instead of printing the HTML page
+
 ## v1.15.0 - 2026-11-27
 
 - jellyfin: family accounts and guest shares, from the home-server-kit idea, rewritten for homelab. `homelab jellyfin user list | add NAME [--kid AGE] | password NAME | remove NAME`: family accounts see everything and can download; a kid account sees Movies + Shows only, ratings up to AGE, unrated items hidden, no downloads. Both appear on Jellyfin's login screen. `homelab jellyfin share NAME [--hours 24] | share list | share stop NAME|all`: a hidden guest account (Movies + Shows, no downloads, no deleting, 2 streams) that a timer removes when its time is up, also after a reboot. Passwords are easy to type with a TV remote and printed once. A public link (Tailscale Funnel or invite) is not built yet
