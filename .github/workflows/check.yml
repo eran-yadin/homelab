@@ -1,0 +1,30 @@
+# Static checks on every push and pull request. The real lifecycle tests
+# (tests/conformance.sh) need the QEMU test VM and stay local.
+name: check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n (every shell script parses)
+        run: |
+          fail=0
+          for f in homelab lib/*.sh lib/kinds/*.sh apps/*/*.sh apps/*/files/*.sh tests/*.sh testenv/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || { echo "::error file=$f::does not parse"; fail=1; }
+          done
+          exit $fail
+      - name: shellcheck (errors fail the build, warnings are shown)
+        run: |
+          files=$(ls homelab lib/*.sh lib/kinds/*.sh apps/*/*.sh apps/*/files/*.sh 2>/dev/null)
+          shellcheck -x -S warning $files || true
+          shellcheck -x -S error $files
+      - name: hub - python compiles
+        run: python3 -m py_compile hub/server.py apps/netmon/files/web/server.py
+      - name: hub - JS structure
+        run: python3 tests/checkjs.py
