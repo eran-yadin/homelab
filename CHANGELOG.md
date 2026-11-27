@@ -2,6 +2,12 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.11.2 - 2026-11-27
+
+- jellyfin: actually transcode on the GPU. Passing `/dev/dri` into the container only makes the chip visible: Jellyfin's own `HardwareAccelerationType` stayed `none`, so every transcode on nucserver ran on its 2-core CPU while the HD 620 sat idle (`vainfo` in the container: Intel iHD driver, H.264/HEVC encode + decode). The first start after the wizard sets QuickSync on `/dev/dri/renderD128` and hardware decoding for h264, hevc, mpeg2, vc1, vp8, vp9, then restarts Jellyfin. Once only (marker file), so a later choice in Jellyfin's dashboard is kept
+- jellyfin: the media folder (`/srv/media` by default) is created with `Movies`, `Shows`, `Music` and given to the owner. Docker had created it as root, so nothing could be copied into it
+- jellyfin: `cache_volumes="cache"`, left out of the nightly backup
+
 ## v1.11.1 - 2026-11-27
 
 - adguard: host networking. Through docker's port publishing, queries that came in over the tailnet reached AdGuard via docker-proxy and all looked like the bridge gateway (172.28.0.1 on nucserver), so the tailnet's `*.nuc` rule never matched and those clients got no answer. With host networking AdGuard sees every client's real address (its per-client stats become right too). The first-run setup now puts the dashboard on `ADGUARD_PORT` and DNS on `DNS_BIND_IP` itself. An install from v1.11.0 needs `delete --purge` + `install`: its web port was set to 3000 inside the container
