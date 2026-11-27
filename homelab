@@ -76,6 +76,8 @@ usage: homelab <command> [app] [options]
                          Sundays (4). Caches (cache_volumes=) are left out.
                          This is what the `backup` app's nightly timer runs.
   restore <app> <dir>
+  confirm <app>          keep a risky change the app armed a rollback for
+                         (the firewall turns itself off unless confirmed)
   offsite allow "<ssh public key>" | revoke <name> | status
                          let another machine pull the nightly backups over
                          ssh, read-only (needs the backup app)
@@ -967,6 +969,16 @@ cmd_offsite() {
     esac
 }
 
+# `homelab confirm <app>`: for an app that asks to be confirmed after a risky
+# change (the firewall's rollback timer). Runs the app's confirm.sh.
+cmd_confirm() {
+    local n="${ARGS[0]:?usage: homelab confirm <app>}"
+    catalog_exists "$n" || die "no such app: $n"
+    [ -x "$HOMELAB_APPS/$n/confirm.sh" ] || die "$n has nothing to confirm"
+    banner_mode
+    app_run_verb "$n" confirm
+}
+
 cmd_restore() {
     local n="${ARGS[0]:?usage: homelab restore <app> <dir>}"
     local d="${ARGS[1]:?usage: homelab restore <app> <dir>}"
@@ -1036,6 +1048,7 @@ case "$CMD" in
     migrate) cmd_migrate ;;
     restore) cmd_restore ;;
     offsite) cmd_offsite ;;
+    confirm) cmd_confirm ;;
     ""|help|-h|--help) usage ;;
     *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
 esac

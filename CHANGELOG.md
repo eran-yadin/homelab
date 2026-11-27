@@ -2,6 +2,12 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.10.0 - 2026-11-27
+
+- firewall: a new app. One nftables table (`inet homelab`) beside docker's and tailscale's rules: lets in loopback, replies, ping, the tailnet, the LAN subnet, containers and tailscale direct connections (udp 41641), and drops the rest -- on the host and towards containers, IPv4 and IPv6. nucserver has a public IPv6 address, which the ISP's CGNAT does not cover, and every service listened on `[::]`. Settings in `/etc/homelab/firewall.conf`, detected once (LAN subnet), with room for friends' ports on Hamachi and public ports; values are validated before they reach the ruleset, and a ruleset that does not parse is never installed
+- firewall: a safety net for applying it over the network. Every start or update arms a transient timer that switches the firewall off again after 3 minutes; `homelab confirm firewall --apply` keeps it. Until then the hub shows it `degraded`. Verified in the VM by locking the session out on purpose: ssh and app ports went dark, and came back on their own when the timer fired
+- engine: `homelab confirm <app>`, for an app with a `confirm.sh`
+
 ## v1.9.1 - 2026-11-27
 
 - engine: one command per app at a time. Every verb that can change an app (everything but `status`, and only with `--apply`) holds a per-app lock in `/run/homelab/locks`; a second command on the same app says it is busy and waits for the first, up to 15 minutes. On nucserver a hub Install of manyfold was still pulling when Start was pressed, both ran `docker compose up`, and the install died on "container name already in use". The nightly backup takes the same lock, so it never pauses an app mid-install
