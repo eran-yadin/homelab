@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.12.2 - 2026-11-27
+
+- home-assistant: the reverse-proxy trust actually takes effect. Current Home Assistant keeps its HTTP settings in `.storage/http`, copies them from `configuration.yaml` once on the first start (`yaml_migration_done`), and ignores the YAML after that -- so v1.12.1's YAML lines did nothing and `home-assistant.nuc` still answered 400. The setting now goes into `.storage/http`, written while Home Assistant is stopped (it rewrites its storage from memory). Older versions without that file still get the YAML
+
 ## v1.12.1 - 2026-11-27
 
 - caddy: `*.nuc` names now reach their apps. The generated routes were bare `name.nuc { ... }`, which caddy serves as HTTPS on :443 even with `auto_https off`, so on :80 every name fell through to the catch-all and showed the hub. They are `http://name.nuc` now. Since this was introduced, `paperless.nuc`, `immich.nuc` and the rest have all been the hub's page
