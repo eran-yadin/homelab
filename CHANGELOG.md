@@ -2,6 +2,14 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.12.1 - 2026-11-27
+
+- caddy: `*.nuc` names now reach their apps. The generated routes were bare `name.nuc { ... }`, which caddy serves as HTTPS on :443 even with `auto_https off`, so on :80 every name fell through to the catch-all and showed the hub. They are `http://name.nuc` now. Since this was introduced, `paperless.nuc`, `immich.nuc` and the rest have all been the hub's page
+- caddy: regenerating routes restarts the container. `caddy reload` could never work here -- the Caddyfile has `admin off`, so there is no admin API to reload through -- and new routes stayed inactive until something restarted caddy
+- engine: `web=0` in app.conf for an app whose port is not a web page (samba's 445). No caddy route and no Open link in the hub; `list --json` carries `web`
+- home-assistant: trusts caddy (127.0.0.1) as its reverse proxy, added once to `configuration.yaml` when it has no `http:` section of its own. Without it Home Assistant answers `home-assistant.nuc` with 400
+- ci: GitHub Actions on every push: `bash -n` on every script, shellcheck (errors fail the build, warnings shown), the hub's python compiles, `tests/checkjs.py`
+
 ## v1.12.0 - 2026-11-27
 
 - samba: a new app, Windows file shares. `\\<host>\media` (Jellyfin's library), `\\<host>\share`, and `3dmodels` when Manyfold's folder exists; set in `/etc/homelab/samba.conf`. One user, the box owner, with a generated password in the app's `.env`. SMB2 and up only, no guest, `hosts allow` limited to private ranges and the tailnet on top of the firewall app. Debian's default `smb.conf` (which also shares every home directory and printer drivers) is set aside as `smb.conf.debian` and put back by `delete`. The app counts as installed by its share config, since smbd's unit stays with the package. A reinstall after `--purge` sets a new password even though Samba's own user database kept the account
