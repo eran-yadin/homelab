@@ -30,6 +30,8 @@ Running on **nucserver** (10.0.0.5) since 2026-08-30.
 - [ ] taking paperless itself into the catalog (see below)
 - [ ] unified search across all apps, HTTPS on the LAN
 
+Every command, with examples: [docs/COMMANDS.md](docs/COMMANDS.md).
+
 ## What is deployed
 
 On nucserver, v1.12.2 (2026-11-27). Every app also answers on `http://<app>.nuc`.
