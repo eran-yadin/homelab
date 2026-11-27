@@ -161,11 +161,12 @@ cmd_list() {
         for n in $(catalog_names); do
             app_load "$n"
             [ $first = 1 ] || printf ','; first=0
-            printf '{"app":"%s","title":"%s","category":"%s","kind":"%s","desc":"%s","ports":"%s","presence":"%s","adopted":%s,"stateful":%s}' \
+            printf '{"app":"%s","title":"%s","category":"%s","kind":"%s","desc":"%s","ports":"%s","presence":"%s","adopted":%s,"stateful":%s,"web":%s}' \
                 "$n" "$(json_escape "$APP_TITLE")" "$APP_CATEGORY" "$APP_KIND" \
                 "$(json_escape "$APP_DESC")" "$APP_PORTS" "$(app_probe)" \
                 "$([ "${APP_ADOPTED:-0}" = 1 ] && echo true || echo false)" \
-                "$([ "${APP_STATEFUL:-0}" = 1 ] && echo true || echo false)"
+                "$([ "${APP_STATEFUL:-0}" = 1 ] && echo true || echo false)" \
+                "$([ "${APP_WEB:-1}" = 0 ] && echo false || echo true)"
         done
         printf ']\n'; return
     fi

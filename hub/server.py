@@ -441,7 +441,9 @@ def api_config():
     for a in catalog():
         port = None
         ports = (a.get("ports") or "").split()
-        if ports:
+        # web=0 in app.conf: the port is not a web page (samba's 445), so no
+        # Open links for it.
+        if ports and a.get("web", True):
             try:
                 port = int(ports[0])
             except ValueError:

@@ -25,7 +25,7 @@ app_load() {
     ports=""; needs_ram_mb=0; needs_disk_mb=0; stateful=0
     detect=""; requires=""; homepage=""; notes=""
     unit=""; extra_units=""; backup_paths=""; purge_paths=""; purge_users=""; oneshot=""; health_url=""
-    conflicts=""; adopted=0; container=""; bulk_volumes=""; cache_volumes=""; nightly=1
+    conflicts=""; adopted=0; container=""; bulk_volumes=""; cache_volumes=""; nightly=1; web=1
 
     # shellcheck disable=SC1090
     . "$APP_DIR/app.conf"
@@ -38,7 +38,7 @@ app_load() {
     APP_UNIT="$unit"; APP_EXTRA_UNITS="$extra_units"; APP_BACKUP_PATHS="$backup_paths"; APP_PURGE_PATHS="$purge_paths"
     APP_PURGE_USERS="$purge_users"; APP_ONESHOT="$oneshot"; APP_HEALTH_URL="$health_url"
     APP_CONFLICTS="$conflicts"; APP_ADOPTED="$adopted"; APP_CONTAINER="$container"
-    APP_BULK_VOLUMES="$bulk_volumes"; APP_CACHE_VOLUMES="$cache_volumes"; APP_NIGHTLY="$nightly"
+    APP_BULK_VOLUMES="$bulk_volumes"; APP_CACHE_VOLUMES="$cache_volumes"; APP_NIGHTLY="$nightly"; APP_WEB="$web"
 }
 
 # ---------------------------------------------------------------- probes

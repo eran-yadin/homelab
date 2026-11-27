@@ -119,6 +119,7 @@ the hub.
 | `oneshot` | — | compose services that run once and exit (init/migration); excluded from the running and total counts |
 | `bulk_volumes` | — | kind=compose: volumes an update never rewrites (a photo library). The backup `update` takes before recreating a `stateful=1` app skips them; `backup` still archives everything |
 | `cache_volumes` | — | kind=compose: volumes holding only files the app fetches again (model weights). The nightly `backup --all` leaves them out; a plain `backup` still archives them |
+| `web` | `1` | `0`: the first port is not a web page (samba's 445). No caddy route, no Open link in the hub |
 | `nightly` | `1` | `0` leaves a `stateful=1` app out of `backup --all`, for data too big to copy every night (AMP's game installs). `backup <app>` still works |
 | `health_url` | — | probed from the host when the container reports no health of its own — the only option for a distroless image with no shell |
 | `conflicts` | — | things that cannot coexist, e.g. `unit:nginx.service`. Checked before `start` |
