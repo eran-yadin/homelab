@@ -6,7 +6,11 @@ set -euo pipefail
 . "$HOMELAB_ROOT/lib/contract.sh"
 
 ROOT=/var/lib/homelab/backups/nightly
-WHEN="*-*-* 03:30:00"
+# The time and how much to keep come from the settings page
+# ($HOMELAB_ETC/backup.conf), defaulting to 03:30, 7 days, 4 Sundays.
+t="$(sed -n 's/^BACKUP_TIME=//p' "$HOMELAB_ETC/backup.conf" 2>/dev/null | tail -1 || true)"
+[[ "$t" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || t="03:30"
+WHEN="*-*-* $t:00"
 
 log "installing homelab-backup.service and .timer"
 run_write /etc/systemd/system/homelab-backup.service 0644 <<UNIT
@@ -17,7 +21,7 @@ Wants=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=$HOMELAB_ROOT/homelab backup --all $ROOT --keep-daily 7 --keep-weekly 4 --apply
+ExecStart=$HOMELAB_ROOT/homelab backup --all $ROOT --apply
 Nice=10
 IOSchedulingClass=idle
 Environment=NO_COLOR=1

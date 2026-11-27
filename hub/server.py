@@ -10,7 +10,7 @@ Every state-changing action goes through one command -- `sudo homelab <verb>
 """
 
 from flask import Flask, jsonify, request, send_from_directory
-import subprocess, socket, os, re, time, json, shutil, threading, shlex, secrets
+import subprocess, socket, os, re, time, json, shutil, threading, shlex, secrets, fcntl
 
 app = Flask(__name__, static_folder=".")
 
@@ -464,6 +464,44 @@ def api_config():
     return jsonify(out)
 
 
+# ------------------------------------------------------------ busy apps
+#
+# The engine holds /run/homelab/locks/<app>.lock while a command changes an
+# app (any command: this hub, the CLI, the nightly backup). Trying the lock
+# without waiting tells whether one is running; <app>.lock.who says which.
+LOCKS = os.environ.get("HOMELAB_LOCKS", "/run/homelab/locks")
+
+
+def busy_apps():
+    out = {}
+    try:
+        names = os.listdir(LOCKS)
+    except OSError:
+        return out
+    for n in names:
+        if not n.endswith(".lock"):
+            continue
+        path = os.path.join(LOCKS, n)
+        try:
+            with open(path, "r") as f:        # read is enough to flock; the file may be root's
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    continue                       # free: nothing running
+                except BlockingIOError:
+                    pass
+        except OSError:
+            continue
+        who = ""
+        try:
+            with open(path + ".who") as w:
+                who = w.read().strip()[:80]
+        except OSError:
+            pass
+        out[n[:-5]] = who or "busy"
+    return out
+
+
 @app.route("/api/status")
 def api_status():
     # ?app=<id>: re-read just that one, now -- what the page asks for after
@@ -475,8 +513,13 @@ def api_status():
         row = refresh_one(one)
         return jsonify({"services": [row] if row else []})
     tsip, tsdns = tailscale_info()
+    busy = busy_apps()
+    with _running_lock:
+        for k, v in _running.items():
+            busy.setdefault(k, v)
     return jsonify({
         "services": app_statuses(),
+        "busy": busy,
         "system": read_system(),
         "net": {
             "hostname": HOSTNAME,
@@ -562,8 +605,25 @@ def load_runs():
     return out
 
 
+# What this hub is running right now, per app. The engine's lock covers the
+# commands themselves; this also covers the gaps between an install's
+# download and its start, and shows the page's own action at once.
+_running = {}
+_running_lock = threading.Lock()
+
+
 def run_action(app_id, action, argv, stdin, timeout):
     """Run one engine command and keep the record of it."""
+    with _running_lock:
+        _running[app_id] = f"{action} since {time.strftime('%H:%M:%S')} (hub)"
+    try:
+        return _run_action(app_id, action, argv, stdin, timeout)
+    finally:
+        with _running_lock:
+            _running.pop(app_id, None)
+
+
+def _run_action(app_id, action, argv, stdin, timeout):
     started = time.time()
     rec = {
         "id": time.strftime("%Y%m%d-%H%M%S", time.localtime(started))
@@ -760,6 +820,8 @@ def api_update_start():
         return jsonify({"started": False, "running": True,
                         "message": "an update is already running"})
     argv = [HOMELAB, "update", "self", "--apply", "--detach"]
+    if hub_settings()["channel"] == "main":
+        argv += ["--channel", "main"]
     if not sudo_permits(argv):
         return jsonify({"started": False,
                         "error": f"not allowed to run '{HOMELAB}' without a "
@@ -790,6 +852,178 @@ def api_update_log():
         "rc": int(m.group(1)) if m else None,
         "version": homelab_version(),
     })
+
+
+# --------------------------------------------------------------- settings
+#
+# The settings page. Everything that changes the server goes through
+# `homelab settings set`, `offsite`, `update firewall`, `confirm` and
+# `backup --now`, run as root by the one sudoers rule the hub has; the engine
+# validates every value. The hub's own preferences (update channel, app
+# tokens) stay in its own state directory.
+HUB_SETTINGS = os.path.join(HUB_STATE, "settings.json")
+TOKENS_DIR = os.path.join(HUB_STATE, "search")
+TOKEN_APPS = ("paperless", "immich")
+SETTING_KEY = re.compile(r"^(backup\.(time|keep_daily|keep_weekly|mode\.[a-z0-9-]+)|offsite\.warn_days|"
+                         r"firewall\.(lan_nets|friend_tcp|friend_udp|public_tcp|public_udp))$")
+
+
+def hub_settings():
+    d = {"update_check": True, "channel": "stable"}
+    try:
+        with open(HUB_SETTINGS) as f:
+            got = json.load(f)
+        if isinstance(got.get("update_check"), bool):
+            d["update_check"] = got["update_check"]
+        if got.get("channel") in ("stable", "main"):
+            d["channel"] = got["channel"]
+    except (OSError, ValueError):
+        pass
+    return d
+
+
+def engine(args, timeout=60):
+    """Run a root engine command; (ok, message)."""
+    try:
+        r = subprocess.run(["sudo", "-n", HOMELAB] + args, capture_output=True,
+                           text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, "timed out"
+    out = _clean((r.stdout or "") + (r.stderr or ""))
+    errs = [l.split(" err ", 1)[-1].strip() for l in out.splitlines() if " err " in l]
+    if r.returncode in (0, 2):
+        return True, out.strip()[-800:]
+    return False, (errs[-1] if errs else out.strip()[-400:] or f"exit {r.returncode}")
+
+
+# A newer release? Asked of GitHub at most every 6 hours, through the
+# checkout `update self` installs from, and only when the settings say so.
+_latest = {"at": 0, "tag": None}
+CHECKOUT = os.environ.get("HOMELAB_CHECKOUT", os.path.expanduser("~/homelab"))
+
+
+def _vtuple(v):
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def latest_release():
+    now = time.time()
+    if now - _latest["at"] < 6 * 3600:
+        return _latest["tag"]
+    _latest["at"] = now
+    try:
+        r = subprocess.run(["git", "-C", CHECKOUT, "ls-remote", "--tags", "--refs", "origin", "v*"],
+                           capture_output=True, text=True, timeout=20)
+        tags = [l.rsplit("/", 1)[-1] for l in r.stdout.splitlines() if "refs/tags/" in l]
+        tags = [t for t in tags if _vtuple(t)]
+        _latest["tag"] = max(tags, key=_vtuple) if tags else None
+    except Exception:
+        pass
+    return _latest["tag"]
+
+
+@app.route("/api/update/available")
+def api_update_available():
+    if not hub_settings()["update_check"]:
+        return jsonify({"checking": False})
+    cur, new = homelab_version(), latest_release()
+    newer = bool(_vtuple(new) and _vtuple(cur) and _vtuple(new) > _vtuple(cur))
+    return jsonify({"checking": True, "current": cur, "latest": new, "newer": newer})
+
+
+@app.route("/settings")
+def settings_page():
+    return send_from_directory(".", "settings.html")
+
+
+@app.route("/api/settings")
+def api_settings():
+    try:
+        r = subprocess.run(["sudo", "-n", HOMELAB, "settings"], capture_output=True,
+                           text=True, timeout=60)
+        server = json.loads(r.stdout) if r.returncode == 0 else {}
+    except (subprocess.TimeoutExpired, ValueError):
+        server = {}
+    toks = {}
+    for a in TOKEN_APPS:
+        toks[a] = os.path.exists(os.path.join(TOKENS_DIR, a + ".token"))
+    return jsonify({**server, "hub": hub_settings(), "tokens": toks,
+                    "version": homelab_version()})
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings_set():
+    data = request.json or {}
+    key, value = str(data.get("key", "")), str(data.get("value", ""))
+    if not SETTING_KEY.match(key) or len(value) > 200 or "\n" in value:
+        return jsonify({"ok": False, "error": "not a setting"}), 400
+    ok, msg = engine(["settings", "set", key, value, "--apply"])
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
+
+
+@app.route("/api/settings/hub", methods=["POST"])
+def api_settings_hub():
+    data = request.json or {}
+    d = hub_settings()
+    if "update_check" in data:
+        d["update_check"] = bool(data["update_check"])
+    if data.get("channel") in ("stable", "main"):
+        d["channel"] = data["channel"]
+    os.makedirs(HUB_STATE, exist_ok=True)
+    tmp = HUB_SETTINGS + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.replace(tmp, HUB_SETTINGS)
+    return jsonify({"ok": True, "hub": d})
+
+
+@app.route("/api/settings/token", methods=["POST"])
+def api_settings_token():
+    data = request.json or {}
+    a, tok = data.get("app"), str(data.get("token", "")).strip()
+    if a not in TOKEN_APPS or not re.match(r"^[A-Za-z0-9._~+/=-]{8,512}$", tok):
+        return jsonify({"ok": False, "error": "that does not look like an API token"}), 400
+    os.makedirs(TOKENS_DIR, mode=0o700, exist_ok=True)
+    path = os.path.join(TOKENS_DIR, a + ".token")
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok + "\n")
+    os.replace(path + ".tmp", path)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/settings/firewall", methods=["POST"])
+def api_settings_firewall():
+    action = (request.json or {}).get("action")
+    if action == "apply":
+        ok, msg = engine(["update", "firewall", "--apply"], timeout=120)
+    elif action == "confirm":
+        ok, msg = engine(["confirm", "firewall", "--apply"])
+    else:
+        return jsonify({"ok": False, "error": "apply or confirm"}), 400
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
+
+
+@app.route("/api/settings/offsite", methods=["POST"])
+def api_settings_offsite():
+    data = request.json or {}
+    if data.get("action") == "allow":
+        ok, msg = engine(["offsite", "allow", str(data.get("key", "")).strip(), "--apply"])
+    elif data.get("action") == "revoke":
+        name = str(data.get("name", ""))
+        if not re.match(r"^[A-Za-z0-9@._-]{1,80}$", name):
+            return jsonify({"ok": False, "error": "bad name"}), 400
+        ok, msg = engine(["offsite", "revoke", name, "--apply"])
+    else:
+        return jsonify({"ok": False, "error": "allow or revoke"}), 400
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
+
+
+@app.route("/api/settings/backup-now", methods=["POST"])
+def api_settings_backup_now():
+    ok, msg = engine(["backup", "--now", "--apply"])
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
 @app.route("/update")

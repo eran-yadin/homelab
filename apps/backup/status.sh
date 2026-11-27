@@ -10,7 +10,9 @@ set -euo pipefail
 line="$(bash "$HOMELAB_ROOT/lib/kinds/systemd.sh" status)"
 keys=/var/lib/homelab-offsite/.ssh/authorized_keys
 stamp=/var/lib/homelab-offsite/last-pull
-max_age=$((3*24*3600))
+days="$(sed -n 's/^OFFSITE_WARN_DAYS=//p' "${HOMELAB_ETC:-/etc/homelab}/backup.conf" 2>/dev/null | tail -1 || true)"
+case "$days" in ''|*[!0-9]*) days=3 ;; esac
+max_age=$((days*24*3600))
 
 # Unreadable without root (the hub runs status as root): say nothing then.
 if [ -r "$keys" ] && grep -q . "$keys" 2>/dev/null; then

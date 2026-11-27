@@ -2,6 +2,16 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.13.0 - 2026-11-27
+
+- hub: a Settings page (`/settings`, linked from the header). Backup: the time, how many days and Sundays to keep, and per app Everything / Without photos and media / Skip, plus Back up now. Offsite: the machines allowed to pull, add or remove one, and after how many days a missing pull warns. Firewall: home network, ports for Hamachi friends and for the internet, Save and apply, then a countdown with Keep it. Updates: show when a release is out, stable or main channel. App tokens for unified search (kept in the hub's state, 0600, never shown again). Credentials stay locked while the hub has no login of its own
+- hub: an app another command is changing (an install in another tab, the CLI, the nightly backup) shows BUSY and its buttons are greyed. Read from the engine's per-app locks, so it sees every command, not just the hub's own
+- hub: with update checks on, the Update button says when a newer release is on GitHub (asked at most every 6 hours)
+- engine: `homelab settings` (JSON for the page) and `homelab settings set <key> <value>`. Every key is listed and every value is checked against what it allows -- they come from a web form and land in files root reads. Backup settings live in `/etc/homelab/backup.conf`; changing the time rewrites the timer
+- engine: `homelab backup --now` starts the nightly job in the background; per-app backup modes (`all`, `nobulk`, `skip`) in `backup --all`; keep-days and keep-Sundays from the settings file unless flags are given
+- firewall: the rollback's deadline is recorded, for the page's countdown
+- manyfold: start gives the library folder (`/srv/3dmodels`) to Manyfold's user. Docker had created it as root, and Manyfold refused it as a library ("must be writable"); the Samba share of it could not be written either. In Manyfold's own settings the folder is `/models`
+
 ## v1.12.2 - 2026-11-27
 
 - home-assistant: the reverse-proxy trust actually takes effect. Current Home Assistant keeps its HTTP settings in `.storage/http`, copies them from `configuration.yaml` once on the first start (`yaml_migration_done`), and ignores the YAML after that -- so v1.12.1's YAML lines did nothing and `home-assistant.nuc` still answered 400. The setting now goes into `.storage/http`, written while Home Assistant is stopped (it rewrites its storage from memory). Older versions without that file still get the YAML

@@ -23,8 +23,9 @@ DETACH=0
 CHANNEL=stable
 TO_TAG=""
 HOMELAB_YES=0
-KEEP_DAILY=7
-KEEP_WEEKLY=4
+KEEP_DAILY=""
+KEEP_WEEKLY=""
+NOW=0
 export HOMELAB_APPLY
 
 usage() {
@@ -76,6 +77,13 @@ usage: homelab <command> [app] [options]
                          Sundays (4). Caches (cache_volumes=) are left out.
                          This is what the `backup` app's nightly timer runs.
   restore <app> <dir>
+  settings [show]        the hub settings page's values, as JSON
+  settings set <key> <value>
+                         change one: backup.time, backup.keep_daily,
+                         backup.keep_weekly, backup.mode.<app> (all|nobulk|skip),
+                         offsite.warn_days, firewall.lan_nets,
+                         firewall.friend_tcp|friend_udp|public_tcp|public_udp
+  backup --now           start the nightly backup now, in the background
   confirm <app>          keep a risky change the app armed a rollback for
                          (the firewall turns itself off unless confirmed)
   offsite allow "<ssh public key>" | revoke <name> | status
@@ -115,6 +123,7 @@ while [ $# -gt 0 ]; do
         --to)     shift; TO_TAG="${1:-}" ;;
         --keep-daily)  shift; KEEP_DAILY="${1:-}" ;;
         --keep-weekly) shift; KEEP_WEEKLY="${1:-}" ;;
+        --now)    NOW=1 ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
         -*) die "unknown option: $1" ;;
@@ -802,11 +811,37 @@ cmd_delete() {
 }
 
 cmd_backup() {
+    if [ "$NOW" = 1 ]; then
+        # The nightly job, started now, in the background (the hub's button).
+        systemctl cat homelab-backup.service >/dev/null 2>&1 || die "the backup app is not installed"
+        banner_mode
+        run $SUDO systemctl start --no-block homelab-backup.service
+        ok "backup started; it shows on the backup card when done"
+        return
+    fi
     if [ "$ALL" = 1 ]; then cmd_backup_all; return; fi
     local n="${ARGS[0]:?usage: homelab backup <app> <dir>}"
     local d="${ARGS[1]:?usage: homelab backup <app> <dir>}"
     banner_mode
     app_run_verb "$n" backup "$d"
+}
+
+# Backup settings: $HOMELAB_ETC/backup.conf, written by `homelab settings set`
+# (the hub's settings page). Plain KEY=value lines, values already validated.
+BACKUP_CONF="$HOMELAB_ETC/backup.conf"
+backup_conf() {  # backup_conf <KEY> <default>
+    local v=""
+    if [ -r "$BACKUP_CONF" ]; then v="$(sed -n "s/^$1=//p" "$BACKUP_CONF" | tail -1)"; fi
+    printf '%s' "${v:-$2}"
+}
+# all (everything), nobulk (leave out bulk_volumes: photos, media) or skip.
+# Default: all, except an app with nightly=0 in its app.conf (amp), skip.
+backup_mode() {
+    local m; m="$(backup_conf "MODE_${1//-/_}" "")"
+    if [ -z "$m" ]; then
+        if grep -qE '^nightly=0' "$HOMELAB_APPS/$1/app.conf" 2>/dev/null; then m=skip; else m=all; fi
+    fi
+    printf '%s' "$m"
 }
 
 # Which apps `backup --all` covers: everything in the catalog that holds data
@@ -818,7 +853,12 @@ backup_all_apps() {
     for n in $(catalog_names); do
         app_load "$n"
         [ "$APP_STATEFUL" = 1 ] || continue
-        if [ "$APP_NIGHTLY" = 0 ]; then
+        local mode; mode="$(backup_mode "$n")"
+        if [ "$mode" = skip ]; then
+            warn "$n: skipped (backup settings)" >&2
+            continue
+        fi
+        if [ "$APP_NIGHTLY" = 0 ] && [ "$mode" != all ]; then
             warn "$n: skipped, its app.conf says nightly=0" >&2
             continue
         fi
@@ -861,6 +901,9 @@ backup_prune() {  # backup_prune <root> <run-just-made>
 
 cmd_backup_all() {
     local root="${ARGS[0]:?usage: homelab backup --all <root>}"
+    # Flags win, then the settings file, then 7 days + 4 Sundays.
+    KEEP_DAILY="${KEEP_DAILY:-$(backup_conf KEEP_DAILY 7)}"
+    KEEP_WEEKLY="${KEEP_WEEKLY:-$(backup_conf KEEP_WEEKLY 4)}"
     case "$KEEP_DAILY$KEEP_WEEKLY" in *[!0-9]*|"") die "--keep-daily and --keep-weekly take a number" ;; esac
     [ "$KEEP_DAILY" -ge 1 ] || die "--keep-daily must be at least 1"
     case "$root" in /*) ;; *) die "backup --all needs an absolute path, got: $root" ;; esac
@@ -890,7 +933,9 @@ cmd_backup_all() {
         log "--- $n ---"
         t0=$(date +%s)
         set +e
-        HOMELAB_BACKUP_SKIP_CACHE=1 app_run_verb "$n" backup "$part/$n"
+        local skip_bulk=0
+        if [ "$(backup_mode "$n")" = nobulk ]; then skip_bulk=1; fi
+        HOMELAB_BACKUP_SKIP_CACHE=1 HOMELAB_BACKUP_SKIP_BULK=$skip_bulk app_run_verb "$n" backup "$part/$n"
         rc=$?
         set -e
         secs=$(( $(date +%s) - t0 ))
@@ -980,6 +1025,152 @@ cmd_confirm() {
     app_run_verb "$n" confirm
 }
 
+# ------------------------------------------------------------------ settings
+#
+# What the hub's settings page reads and changes. `settings` prints JSON;
+# `settings set <key> <value>` changes one value. Every key is listed below
+# and every value is checked against what that key allows, because the values
+# come from a web form and end up in config files and unit files read by root.
+FIREWALL_CONF="$HOMELAB_ETC/firewall.conf"
+
+_conf_set() {  # _conf_set <file> <KEY> <value>  (value already validated)
+    local f="$1" k="$2" v="$3"
+    if is_apply; then
+        $SUDO mkdir -p "$(dirname "$f")"
+        $SUDO touch "$f"
+        if $SUDO grep -q "^$k=" "$f"; then
+            $SUDO sed -i "s|^$k=.*|$k=$v|" "$f"
+        else
+            printf '%s=%s\n' "$k" "$v" | $SUDO tee -a "$f" >/dev/null
+        fi
+    else
+        printf '%s     would set:%s %s=%s in %s\n' "$C_DIM" "$C_RST" "$k" "$v" "$f" >&2
+    fi
+}
+
+_ports_ok() {  # space-separated ports or ranges, may be empty
+    local p
+    for p in $1; do [[ "$p" =~ ^[0-9]{1,5}(-[0-9]{1,5})?$ ]] || return 1; done
+    [[ "$1" =~ ^[0-9\ -]*$ ]]
+}
+
+settings_set() {
+    local key="${ARGS[1]:-}" val="${ARGS[*]:2}"   # a value may be several words (ports)
+    [ -n "$key" ] || die "usage: homelab settings set <key> <value>"
+    banner_mode
+    case "$key" in
+    backup.time)
+        [[ "$val" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "backup.time: a time like 03:30"
+        _conf_set "$BACKUP_CONF" BACKUP_TIME "$val"
+        if systemctl cat homelab-backup.timer >/dev/null 2>&1; then
+            run $SUDO sed -i "s|^OnCalendar=.*|OnCalendar=*-*-* $val:00|" /etc/systemd/system/homelab-backup.timer
+            run $SUDO systemctl daemon-reload
+            if systemctl is-active --quiet homelab-backup.timer; then run $SUDO systemctl restart homelab-backup.timer; fi
+        fi ;;
+    backup.keep_daily)
+        [[ "$val" =~ ^[0-9]{1,2}$ ]] && [ "$val" -ge 1 ] && [ "$val" -le 60 ] || die "backup.keep_daily: 1 to 60"
+        _conf_set "$BACKUP_CONF" KEEP_DAILY "$val" ;;
+    backup.keep_weekly)
+        [[ "$val" =~ ^[0-9]{1,2}$ ]] && [ "$val" -le 52 ] || die "backup.keep_weekly: 0 to 52"
+        _conf_set "$BACKUP_CONF" KEEP_WEEKLY "$val" ;;
+    backup.mode.*)
+        local app="${key#backup.mode.}"
+        catalog_exists "$app" || die "no such app: $app"
+        app_load "$app"; [ "$APP_STATEFUL" = 1 ] || die "$app holds no data to back up"
+        case "$val" in all|nobulk|skip) ;; *) die "backup.mode: all, nobulk or skip" ;; esac
+        _conf_set "$BACKUP_CONF" "MODE_${app//-/_}" "$val" ;;
+    offsite.warn_days)
+        [[ "$val" =~ ^[0-9]{1,2}$ ]] && [ "$val" -ge 1 ] && [ "$val" -le 30 ] || die "offsite.warn_days: 1 to 30"
+        _conf_set "$BACKUP_CONF" OFFSITE_WARN_DAYS "$val" ;;
+    firewall.lan_nets)
+        local n; [ -n "$val" ] || die "firewall.lan_nets: at least one network (else the LAN is locked out)"
+        for n in $val; do [[ "$n" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "firewall.lan_nets: not an IPv4 network: $n"; done
+        [[ "$val" =~ ^[0-9./\ ]+$ ]] || die "firewall.lan_nets: networks separated by spaces"
+        $SUDO test -f "$FIREWALL_CONF" || die "install the firewall app first"
+        _conf_set "$FIREWALL_CONF" LAN_NETS "\"$val\"" ;;
+    firewall.friend_tcp|firewall.friend_udp|firewall.public_tcp|firewall.public_udp)
+        _ports_ok "$val" || die "$key: ports or ranges separated by spaces, like 27015 25565-25570"
+        $SUDO test -f "$FIREWALL_CONF" || die "install the firewall app first"
+        local k="${key#firewall.}"; k="${k^^}"
+        _conf_set "$FIREWALL_CONF" "$k" "\"$val\"" ;;
+    *) die "unknown setting: $key" ;;
+    esac
+    ok "$key = $val"
+}
+
+settings_json() {
+    local fw_pending=0 fw_left=0 fw_running=0 fw_installed=0 bk_installed=0 last=""
+    if systemctl cat homelab-backup.timer >/dev/null 2>&1; then bk_installed=1; fi
+    if systemctl cat homelab-firewall.service >/dev/null 2>&1; then fw_installed=1; fi
+    if systemctl is-active --quiet homelab-firewall.service 2>/dev/null; then fw_running=1; fi
+    if systemctl is-active --quiet homelab-firewall-rollback.timer 2>/dev/null; then
+        fw_pending=1
+        local at; at="$(cat /run/homelab/firewall-rollback-at 2>/dev/null || true)"
+        case "$at" in *[!0-9]*|"") fw_left=0 ;; *) fw_left=$(( at - $(date +%s) )) ;; esac
+    fi
+    local root=/var/lib/homelab/backups/nightly
+    last="$(${SUDO:+$SUDO -n} readlink "$root/latest" 2>/dev/null || true)"
+    local summary=""; [ -n "$last" ] && summary="$(${SUDO:+$SUDO -n} cat "$root/$last/SUMMARY" 2>/dev/null || true)"
+    local keys=""; keys="$(${SUDO:+$SUDO -n} awk '{print $NF}' /var/lib/homelab-offsite/.ssh/authorized_keys 2>/dev/null || true)"
+    local lastpull; lastpull="$(${SUDO:+$SUDO -n} cat /var/lib/homelab-offsite/last-pull 2>/dev/null || true)"
+    local fwconf=""; fwconf="$(${SUDO:+$SUDO -n} cat "$FIREWALL_CONF" 2>/dev/null || true)"
+    # the apps the backup covers or could: installed, stateful
+    local apps="" n line st
+    for n in $(catalog_names); do
+        app_load "$n"; [ "$APP_STATEFUL" = 1 ] || continue
+        line="$(app_run_verb "$n" status 2>/dev/null || true)"
+        st="$(printf '%s' "$line" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')"
+        case "$st" in ""|absent) continue ;; esac
+        apps="$apps$n|$APP_TITLE|$(backup_mode "$n")|${APP_BULK_VOLUMES:+1}|$APP_KIND"$'\n'
+    done
+    BK_INSTALLED="$bk_installed" BK_TIME="$(backup_conf BACKUP_TIME 03:30)" \
+    BK_DAILY="$(backup_conf KEEP_DAILY 7)" BK_WEEKLY="$(backup_conf KEEP_WEEKLY 4)" \
+    BK_WARN="$(backup_conf OFFSITE_WARN_DAYS 3)" BK_LAST="$last" BK_SUMMARY="$summary" \
+    BK_APPS="$apps" OFF_KEYS="$keys" OFF_LAST="$lastpull" \
+    FW_INSTALLED="$fw_installed" FW_RUNNING="$fw_running" FW_PENDING="$fw_pending" FW_LEFT="$fw_left" FW_CONF="$fwconf" \
+    python3 - <<'PY'
+import json, os, re
+e = os.environ
+sizes = {}
+for l in (e.get("BK_SUMMARY") or "").splitlines():
+    p = l.split()
+    if p: sizes[p[0]] = {"result": p[1] if len(p) > 1 else "", "secs": p[2] if len(p) > 2 else "", "size": p[3] if len(p) > 3 else ""}
+apps = []
+for l in (e.get("BK_APPS") or "").splitlines():
+    if not l: continue
+    a, title, mode, bulk, kind = (l.split("|") + ["", "", "", "", ""])[:5]
+    apps.append({"app": a, "title": title, "mode": mode, "has_bulk": bulk == "1",
+                 "last": sizes.get(a)})
+fw = {}
+for l in (e.get("FW_CONF") or "").splitlines():
+    m = re.match(r'^([A-Z_]+)="?([^"]*)"?$', l)
+    if m: fw[m.group(1).lower()] = m.group(2)
+ok = sum(1 for v in sizes.values() if v["result"] == "ok")
+print(json.dumps({
+  "backup": {"installed": e["BK_INSTALLED"] == "1", "time": e["BK_TIME"],
+             "keep_daily": int(e["BK_DAILY"]), "keep_weekly": int(e["BK_WEEKLY"]),
+             "last": {"stamp": e.get("BK_LAST") or None, "ok": ok, "total": len(sizes)},
+             "apps": apps},
+  "offsite": {"keys": [k for k in (e.get("OFF_KEYS") or "").split() if k],
+              "last_pull": int(e["OFF_LAST"]) if (e.get("OFF_LAST") or "").isdigit() else None,
+              "warn_days": int(e["BK_WARN"])},
+  "firewall": {"installed": e["FW_INSTALLED"] == "1", "running": e["FW_RUNNING"] == "1",
+               "pending_confirm": e["FW_PENDING"] == "1", "seconds_left": max(0, int(e["FW_LEFT"] or 0)),
+               "lan_nets": fw.get("lan_nets", ""), "trusted": fw.get("trusted_ifaces", "tailscale0"),
+               "friend_tcp": fw.get("friend_tcp", ""), "friend_udp": fw.get("friend_udp", ""),
+               "public_tcp": fw.get("public_tcp", ""), "public_udp": fw.get("public_udp", "")},
+}))
+PY
+}
+
+cmd_settings() {
+    case "${ARGS[0]:-show}" in
+        show|"") settings_json ;;
+        set)     settings_set ;;
+        *)       die "usage: homelab settings [show] | settings set <key> <value>" ;;
+    esac
+}
+
 cmd_restore() {
     local n="${ARGS[0]:?usage: homelab restore <app> <dir>}"
     local d="${ARGS[1]:?usage: homelab restore <app> <dir>}"
@@ -1050,6 +1241,7 @@ case "$CMD" in
     restore) cmd_restore ;;
     offsite) cmd_offsite ;;
     confirm) cmd_confirm ;;
+    settings) cmd_settings ;;
     ""|help|-h|--help) usage ;;
     *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
 esac

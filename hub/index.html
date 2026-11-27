@@ -670,9 +670,11 @@
       <button class="link-opt active" id="mode-local"     onclick="setLinkMode('local')">Local</button>
       <button class="link-opt"        id="mode-tailscale" onclick="setLinkMode('tailscale')">Tailscale</button>
     </div>
+    <a class="filter-tab" href="/settings" title="Backup, offsite copy, firewall, updates"
+       style="text-decoration:none">Settings</a>
     <a class="filter-tab" href="/docs" title="How this works, and how to add an app"
        style="text-decoration:none">Docs</a>
-    <button class="filter-tab" onclick="openUpdate()"
+    <button class="filter-tab" id="update-btn" onclick="openUpdate()"
             title="Install the latest homelab version. Opens a tab that shows the progress.">Update</button>
     <button class="filter-tab" onclick="openHistory()" title="What the hub ran recently, with the full output">History</button>
     <button class="danger-btn" onclick="askReboot()" title="Reboot the server">Reboot</button>
@@ -842,6 +844,7 @@ let bootTime = null;          // /proc btime, used to confirm a reboot happened
 let FILTERS = [];             // custom filters, stored server-side
 let editingId = null;         // filter being edited in the modal, null = new
 let STATUS = {};              // live state per app, keyed by app id
+let BUSY = {};                // app id -> what is running on it (engine lock or hub)
 let installedOnly = localStorage.getItem('hub.installedOnly') === '1';
 
 /* ---------------------------------------------------------------- utils */
@@ -1287,6 +1290,18 @@ function updateServiceStatuses(statuses) {
 
     const open = document.getElementById(`open-${id}`);
     if (open) open.classList.toggle('disabled', !running);
+
+    // Another command is changing this app (an install from another tab,
+    // the CLI, the nightly backup): grey its buttons and say what it is.
+    // Starting a second one would only wait for the first (engine lock).
+    const busy = BUSY[id];
+    if (busy) {
+      ['install','start','stop','restart','delete'].forEach(a => { if (b(a)) b(a).disabled = true; });
+      txt.className = 'status-text warn';
+      txt.textContent = 'BUSY';
+      txt.title = busy;
+      dot.className = 'status-dot warn';
+    }
   });
   // an app that just appeared or disappeared may change what the filter shows
   applyFilters();
@@ -1351,6 +1366,7 @@ async function refreshOne(id) {
   try {
     const res = await fetch(`${API}/api/status?app=${encodeURIComponent(id)}`, {cache: 'no-store'});
     const data = await res.json();
+    delete BUSY[id];              // our own action on it just finished
     if (data.services) updateServiceStatuses(data.services);
   } catch (e) {
     await refresh();
@@ -1617,6 +1633,19 @@ function buildCard(svc) {
   `;
 }
 
+// Settings > Updates: when on, the Update button says when a release is out.
+async function checkForUpdate() {
+  try {
+    const d = await (await fetch(`${API}/api/update/available`, {cache: 'no-store'})).json();
+    const btn = document.getElementById('update-btn');
+    if (d.checking && d.newer) {
+      btn.textContent = `Update · new ${d.latest}`;
+      btn.style.color = 'var(--amber)';
+      btn.title = `${d.latest} is out (running ${d.current}). Click to install it.`;
+    }
+  } catch (e) { /* offline: say nothing */ }
+}
+
 async function loadConfig() {
   const res = await fetch(`${API}/api/config`);
   CONFIG = await res.json();
@@ -1641,6 +1670,7 @@ async function refresh(quiet = false) {
     updateNet(data.net);
     updateSystem(data.system);
     if (data.system && data.system.boot_time) bootTime = data.system.boot_time;
+    BUSY = data.busy || {};
     updateServiceStatuses(data.services);
     document.getElementById('last-update-time').textContent =
       new Date().toLocaleTimeString('en-GB');
@@ -1682,6 +1712,8 @@ document.addEventListener('keydown', e => {
   await loadConfig().catch(() =>
     toast('Could not load the catalog — is homelab-hub running?', 'error'));
   await refresh();
+  checkForUpdate();
+  setInterval(checkForUpdate, 3600 * 1000);
 })();
 </script>
 </body>

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings · NUC Homelab</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07080d; --panel: #0d1019; --line: #1c2235; --field: #2a3350;
+    --text: #c8d4e8; --muted: #9aa8c2; --white: #ffffff;
+    --amber: #f5a623; --amber-dim: #3d2800; --green: #2ecc71; --green-dim: #0a2d1a;
+    --red: #e98b80; --red-dim: #2d0a0a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Rajdhani', sans-serif; font-size: 17px; }
+  a { color: var(--amber); } a:hover { color: #ffc65c; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 32px; border-bottom: 1px solid var(--line); background: #0b0d15; }
+  header .brand { font-weight: 700; font-size: 24px; letter-spacing: .06em; color: var(--amber); flex-grow: 1; text-decoration: none; }
+  header .ver { font-size: 13px; color: var(--muted); }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 32px 64px; display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+  nav.side { flex: 1 1 200px; max-width: 240px; display: flex; flex-direction: column; gap: 4px; }
+  nav.side a { padding: 10px 12px; border-radius: 6px; color: var(--text); text-decoration: none; }
+  nav.side a:hover { background: #121626; color: var(--amber); }
+  nav.side .note { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; color: var(--muted); line-height: 1.4; }
+  main { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  section.locked { background: #0a0c13; border-style: dashed; border-color: var(--field); }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+  h2 { margin: 0; font-size: 26px; font-weight: 700; color: var(--white); flex-grow: 1; }
+  p { margin: 0; color: var(--muted); line-height: 1.45; }
+  .pill { font-family: 'JetBrains Mono', monospace; font-size: 13px; padding: 4px 10px; border-radius: 999px; }
+  .pill.ok { background: var(--green-dim); color: var(--green); }
+  .pill.warn { background: var(--amber-dim); color: var(--amber); }
+  .pill.bad { background: var(--red-dim); color: var(--red); }
+  .grid2, .grid3 { display: grid; gap: 16px; }
+  .grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .grid2, .grid3 { grid-template-columns: 1fr; } header { padding: 14px 16px; } .wrap { padding: 20px 16px 48px; } nav.side { max-width: none; } }
+  label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 15px; }
+  label.inline { flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: 17px; }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--field); color: var(--white); border-radius: 6px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 15px; }
+  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--amber); }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+  .fixed { background: var(--bg); border: 1px dashed var(--field); border-radius: 6px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 15px; color: var(--text); }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  button { font: inherit; font-size: 17px; border-radius: 6px; padding: 12px 20px; cursor: pointer; min-height: 44px; }
+  .primary { background: var(--amber); color: var(--bg); border: 0; font-weight: 700; }
+  .ghost { background: transparent; color: var(--amber); border: 1px solid var(--amber); font-weight: 600; }
+  .danger { background: transparent; color: var(--red); border: 1px solid #5a2620; padding: 10px 14px; font-size: 16px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; min-width: 520px; font-size: 16px; }
+  th { text-align: left; color: var(--muted); font-size: 14px; font-weight: 600; padding: 10px 14px; }
+  td { padding: 8px 14px; border-top: 1px solid var(--line); }
+  td.num { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+  .keyrow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+  .keyrow .who { flex-grow: 1; display: flex; flex-direction: column; gap: 2px; }
+  .banner { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px; border-radius: 8px; background: var(--amber-dim); color: #ffd28a; }
+  .banner div { flex: 1 1 320px; line-height: 1.4; }
+  .msg { font-size: 15px; min-height: 1.2em; }
+  .msg.ok { color: var(--green); } .msg.bad { color: var(--red); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">NUC HOMELAB HUB</a>
+  <a href="/">← Apps</a>
+  <span class="ver mono" id="ver">…</span>
+</header>
+
+<div class="wrap">
+  <nav class="side" aria-label="Settings sections">
+    <a href="#backup">Backup</a>
+    <a href="#offsite">Offsite copy</a>
+    <a href="#firewall">Firewall</a>
+    <a href="#updates">Updates</a>
+    <a href="#tokens">App tokens</a>
+    <a href="#credentials">Credentials (locked)</a>
+    <div class="note">Saving runs the homelab engine, which checks every value before it writes anything. The hub itself stays unprivileged.</div>
+  </nav>
+
+  <main>
+    <section id="backup">
+      <div class="head"><h2>Nightly backup</h2><span class="pill" id="bk-pill">…</span></div>
+      <p id="bk-missing" class="hidden">The backup app is not installed. Install it from the Apps page.</p>
+      <div class="grid3">
+        <label>Runs at <input type="time" id="bk-time"></label>
+        <label>Keep daily copies <input type="number" id="bk-daily" min="1" max="60"></label>
+        <label>Keep Sundays <input type="number" id="bk-weekly" min="0" max="52"></label>
+      </div>
+      <div>
+        <div style="font-weight:600;color:var(--white);margin-bottom:8px">What each app backs up</div>
+        <div class="tablebox">
+          <table>
+            <thead><tr><th>App</th><th>Backup</th><th>Last night</th></tr></thead>
+            <tbody id="bk-apps"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="saveBackup()">Save backup settings</button>
+        <button class="ghost" onclick="backupNow()">Back up now</button>
+        <span class="msg" id="bk-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section id="offsite">
+      <div class="head"><h2>Offsite copy</h2><span class="pill" id="off-pill">…</span></div>
+      <p>Machines that pull the nightly folder. Their key can only read the backups.</p>
+      <div id="off-keys"></div>
+      <label>Allow another machine (paste its public key)
+        <textarea id="off-key" rows="2" placeholder="ssh-ed25519 AAAA… homelab-pull@laptop"></textarea>
+      </label>
+      <div class="row">
+        <button class="ghost" onclick="allowKey()">Allow this machine</button>
+        <label style="flex-direction:row;align-items:center;gap:10px">Warn when the copy is older than
+          <input type="number" id="off-warn" min="1" max="30" style="width:90px"> days</label>
+        <button class="primary" onclick="saveWarn()">Save</button>
+        <span class="msg" id="off-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section id="firewall">
+      <div class="head"><h2>Firewall</h2><span class="pill" id="fw-pill">…</span></div>
+      <p id="fw-missing" class="hidden">The firewall app is not installed. Install it from the Apps page.</p>
+      <div class="grid2">
+        <label>Home network <input type="text" id="fw-lan" placeholder="10.0.0.0/24"></label>
+        <label>Always allowed <span class="fixed" id="fw-trusted">tailscale0</span></label>
+        <label>Ports for Hamachi friends (TCP) <input type="text" id="fw-ftcp" placeholder="e.g. 27015 25565"></label>
+        <label>Ports for Hamachi friends (UDP) <input type="text" id="fw-fudp" placeholder="e.g. 27015"></label>
+        <label>Open to the internet (TCP) <input type="text" id="fw-ptcp" placeholder="none"></label>
+        <label>Open to the internet (UDP) <input type="text" id="fw-pudp" placeholder="none"></label>
+      </div>
+      <div class="banner hidden" id="fw-banner">
+        <div>The firewall switches itself off again in <strong class="mono" id="fw-left">–</strong> unless you keep it. Check this page still loads (reload it), then keep it.</div>
+        <button class="primary" onclick="fwConfirm()">Keep it</button>
+      </div>
+      <div class="row">
+        <button class="primary" onclick="fwApply()">Save and apply</button>
+        <span class="msg" id="fw-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section id="updates">
+      <h2>Updates</h2>
+      <div class="row" style="gap:24px">
+        <label class="inline"><input type="checkbox" id="up-check"> Show when a new homelab version is out</label>
+        <label>Channel
+          <select id="up-channel"><option value="stable">stable (tagged releases)</option><option value="main">main (every change)</option></select>
+        </label>
+        <button class="primary" onclick="saveUpdates()">Save</button>
+        <span class="msg" id="up-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section id="tokens">
+      <h2>App tokens</h2>
+      <p>For unified search across apps. Kept on the server only, readable by the hub alone; this page never shows them again after saving.</p>
+      <div class="grid2" id="tok-fields"></div>
+      <span class="msg" id="tok-msg" role="status"></span>
+    </section>
+
+    <section id="credentials" class="locked" aria-disabled="true">
+      <div class="row">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9aa8c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+        <h2 style="color:var(--text)">Credentials</h2>
+      </div>
+      <p>Logins like playit.gg and the generated app passwords (AdGuard, Samba). Locked until the hub has its own login: today anyone on the home Wi-Fi can open this page. Until then they are on the server: <span class="mono">/var/lib/homelab/apps/&lt;app&gt;/.env</span>.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+let S = null;
+const $ = id => document.getElementById(id);
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function say(id, text, ok) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok' : 'bad');
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  let d = {};
+  try { d = await r.json(); } catch (e) {}
+  return {ok: r.ok && d.ok !== false, msg: d.message || d.error || (r.ok ? 'saved' : `error ${r.status}`), data: d};
+}
+
+async function setting(key, value) {
+  return post('/api/settings', {key, value: String(value)});
+}
+
+const MODE_LABEL = {all: 'Everything', nobulk: 'Without photos / media', skip: 'Skip'};
+
+function render() {
+  $('ver').textContent = (S.version || '') + ' · settings';
+  const b = S.backup || {};
+  $('bk-missing').classList.toggle('hidden', !!b.installed);
+  $('bk-time').value = b.time || '03:30';
+  $('bk-daily').value = b.keep_daily ?? 7;
+  $('bk-weekly').value = b.keep_weekly ?? 4;
+  const last = b.last || {};
+  const pill = $('bk-pill');
+  if (!b.installed) { pill.textContent = 'not installed'; pill.className = 'pill bad'; }
+  else if (!last.stamp) { pill.textContent = 'no run yet'; pill.className = 'pill warn'; }
+  else {
+    const allOk = last.ok === last.total;
+    const st = last.stamp.replace(/^(\d{4}-\d\d-\d\d)_(\d\d)(\d\d)\d\d$/, '$1 $2:$3');
+    pill.textContent = `last run: ${st} · ${last.ok}/${last.total} ok`;
+    pill.className = 'pill ' + (allOk ? 'ok' : 'bad');
+  }
+  $('bk-apps').innerHTML = (b.apps || []).map(a => {
+    const modes = a.has_bulk ? ['all', 'nobulk', 'skip'] : ['all', 'skip'];
+    const opts = modes.map(m => `<option value="${m}" ${m === a.mode ? 'selected' : ''}>${MODE_LABEL[m]}</option>`).join('');
+    const l = a.last;
+    const lastTxt = l ? `${l.result === 'ok' ? '' : '⚠ '}${esc(l.size || '')} ${l.result === 'ok' ? '' : esc(l.result)}` : '—';
+    return `<tr><td>${esc(a.title)}</td>
+      <td><select data-app="${esc(a.app)}" data-was="${esc(a.mode)}" aria-label="${esc(a.title)} backup">${opts}</select></td>
+      <td class="num">${lastTxt}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" style="color:var(--muted)">No installed app holds data.</td></tr>';
+
+  const o = S.offsite || {};
+  $('off-warn').value = o.warn_days ?? 3;
+  const keys = o.keys || [];
+  const opill = $('off-pill');
+  if (!keys.length) { opill.textContent = 'no machine allowed'; opill.className = 'pill warn'; }
+  else if (!o.last_pull) { opill.textContent = 'waiting for the first pull'; opill.className = 'pill warn'; }
+  else {
+    const days = (Date.now() / 1000 - o.last_pull) / 86400;
+    const when = new Date(o.last_pull * 1000).toLocaleString();
+    opill.textContent = `last pull: ${when}`;
+    opill.className = 'pill ' + (days > (o.warn_days || 3) ? 'bad' : 'ok');
+  }
+  $('off-keys').innerHTML = keys.map(k => `
+    <div class="keyrow"><div class="who"><div style="font-weight:600;color:var(--white)">${esc(k.split('@').pop())}</div>
+      <div class="mono" style="font-size:13px;color:var(--muted)">${esc(k)}</div></div>
+      <button class="danger" onclick="revokeKey('${esc(k)}')">Remove</button></div>`).join('');
+
+  const f = S.firewall || {};
+  $('fw-missing').classList.toggle('hidden', !!f.installed);
+  $('fw-lan').value = f.lan_nets || '';
+  $('fw-trusted').textContent = (f.trusted || 'tailscale0') + ' (locked: it is how you get in)';
+  $('fw-ftcp').value = f.friend_tcp || '';
+  $('fw-fudp').value = f.friend_udp || '';
+  $('fw-ptcp').value = f.public_tcp || '';
+  $('fw-pudp').value = f.public_udp || '';
+  const fp = $('fw-pill');
+  if (!f.installed) { fp.textContent = 'not installed'; fp.className = 'pill bad'; }
+  else if (f.pending_confirm) { fp.textContent = 'on · not confirmed'; fp.className = 'pill warn'; }
+  else if (f.running) { fp.textContent = 'on · confirmed'; fp.className = 'pill ok'; }
+  else { fp.textContent = 'off'; fp.className = 'pill bad'; }
+  startCountdown(f.pending_confirm ? f.seconds_left : 0);
+
+  const h = S.hub || {};
+  $('up-check').checked = !!h.update_check;
+  $('up-channel').value = h.channel || 'stable';
+
+  $('tok-fields').innerHTML = Object.entries(S.tokens || {}).map(([app, set]) => `
+    <label>${esc(app[0].toUpperCase() + app.slice(1))}
+      <input type="password" id="tok-${esc(app)}" placeholder="${set ? 'saved · paste to replace' : 'paste an API key'}" autocomplete="off">
+      <button class="ghost" onclick="saveToken('${esc(app)}')" style="align-self:flex-start">Save ${esc(app)} token</button>
+    </label>`).join('');
+}
+
+let timer = null;
+function startCountdown(secs) {
+  clearInterval(timer);
+  $('fw-banner').classList.toggle('hidden', !(secs > 0));
+  if (!(secs > 0)) return;
+  let left = secs;
+  const show = () => { $('fw-left').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
+  show();
+  timer = setInterval(() => { left--; if (left <= 0) { clearInterval(timer); load(); } else show(); }, 1000);
+}
+
+async function load() {
+  const r = await fetch('/api/settings', {cache: 'no-store'});
+  S = await r.json();
+  render();
+}
+
+async function saveBackup() {
+  const b = S.backup || {};
+  const changes = [];
+  if ($('bk-time').value !== b.time) changes.push(['backup.time', $('bk-time').value]);
+  if (+$('bk-daily').value !== b.keep_daily) changes.push(['backup.keep_daily', $('bk-daily').value]);
+  if (+$('bk-weekly').value !== b.keep_weekly) changes.push(['backup.keep_weekly', $('bk-weekly').value]);
+  document.querySelectorAll('#bk-apps select').forEach(s => {
+    if (s.value !== s.dataset.was) changes.push([`backup.mode.${s.dataset.app}`, s.value]);
+  });
+  if (!changes.length) return say('bk-msg', 'nothing changed', true);
+  say('bk-msg', 'saving…', true);
+  for (const [k, v] of changes) {
+    const r = await setting(k, v);
+    if (!r.ok) { say('bk-msg', r.msg, false); return load(); }
+  }
+  say('bk-msg', `saved (${changes.length} change${changes.length > 1 ? 's' : ''})`, true);
+  load();
+}
+
+async function backupNow() {
+  say('bk-msg', 'starting…', true);
+  const r = await post('/api/settings/backup-now');
+  say('bk-msg', r.ok ? 'backup started; it takes a few minutes' : r.msg, r.ok);
+}
+
+async function allowKey() {
+  const key = $('off-key').value.trim();
+  if (!key) return say('off-msg', 'paste the machine’s public key first', false);
+  const r = await post('/api/settings/offsite', {action: 'allow', key});
+  say('off-msg', r.ok ? 'allowed' : r.msg, r.ok);
+  if (r.ok) { $('off-key').value = ''; load(); }
+}
+
+async function revokeKey(name) {
+  if (!confirm(`Stop ${name} from pulling the backups?`)) return;
+  const r = await post('/api/settings/offsite', {action: 'revoke', name});
+  say('off-msg', r.ok ? 'removed' : r.msg, r.ok);
+  load();
+}
+
+async function saveWarn() {
+  const r = await setting('offsite.warn_days', $('off-warn').value);
+  say('off-msg', r.ok ? 'saved' : r.msg, r.ok);
+  load();
+}
+
+async function fwApply() {
+  const f = S.firewall || {};
+  const fields = [['lan_nets', 'fw-lan'], ['friend_tcp', 'fw-ftcp'], ['friend_udp', 'fw-fudp'], ['public_tcp', 'fw-ptcp'], ['public_udp', 'fw-pudp']];
+  say('fw-msg', 'saving…', true);
+  for (const [k, id] of fields) {
+    const v = $(id).value.trim().replace(/\s+/g, ' ');
+    if (v === (f[k] || '')) continue;
+    const r = await setting(`firewall.${k}`, v);
+    if (!r.ok) { say('fw-msg', r.msg, false); return; }
+  }
+  say('fw-msg', 'applying…', true);
+  const r = await post('/api/settings/firewall', {action: 'apply'});
+  say('fw-msg', r.ok ? 'applied: reload this page to check you still get in, then keep it' : r.msg, r.ok);
+  load();
+}
+
+async function fwConfirm() {
+  const r = await post('/api/settings/firewall', {action: 'confirm'});
+  say('fw-msg', r.ok ? 'kept: it stays on, also after a reboot' : r.msg, r.ok);
+  load();
+}
+
+async function saveUpdates() {
+  const r = await post('/api/settings/hub', {update_check: $('up-check').checked, channel: $('up-channel').value});
+  say('up-msg', r.ok ? 'saved' : r.msg, r.ok);
+}
+
+async function saveToken(app) {
+  const el = $(`tok-${app}`);
+  const r = await post('/api/settings/token', {app, token: el.value.trim()});
+  say('tok-msg', r.ok ? `${app} token saved` : r.msg, r.ok);
+  if (r.ok) { el.value = ''; load(); }
+}
+
+load();
+</script>
+</body>
+</html>

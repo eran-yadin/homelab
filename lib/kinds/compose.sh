@@ -578,7 +578,8 @@ backup)
         # shellcheck disable=SC2064,SC2086
         trap "run ${DK[*]} unpause $paused >/dev/null || true" EXIT
     fi
-    _do_backup "$dest" 0
+    # HOMELAB_BACKUP_SKIP_BULK=1: the "without media" backup mode
+    _do_backup "$dest" "${HOMELAB_BACKUP_SKIP_BULK:-0}"
     if [ -n "$paused" ]; then
         # shellcheck disable=SC2086
         run "${DK[@]}" unpause $paused >/dev/null
