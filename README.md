@@ -117,7 +117,7 @@ Fix it from the path test tab.
 |---|---|
 | ai | ollama |
 | base | docker, hub |
-| gaming | amp *(adopted)* |
+| gaming | amp *(adopted)*, ut99 |
 | documents | paperless, transcribe |
 | files | manyfold, syncthing |
 | home | home-assistant |

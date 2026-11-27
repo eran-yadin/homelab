@@ -1,0 +1,42 @@
+services:
+  # A fresh named volume arrives owned by root; the server runs as PUID.
+  init-perms:
+    image: alpine:3
+    command: ["sh", "-c", "chown -R ${PUID:-1000}:${PUID:-1000} /data"]
+    volumes: [data:/data]
+    restart: "no"
+  ut99:
+    # Only :latest is published; pinned by digest (2026-11-24, OldUnreal 469e).
+    image: phasecorex/ut99-server@sha256:64e2aa74a9546775541275987b9b0894bd2b3ba80639f48af64b84f133d19fc1
+    container_name: ut99
+    restart: unless-stopped
+    depends_on:
+      init-perms: {condition: service_completed_successfully}
+    # Writes the .env settings into UnrealTournament.ini, then runs the
+    # image's own start script.
+    command: ["/app/homelab-start.sh"]
+    environment:
+      PUID: ${PUID:-1000}
+      TZ: ${TZ:-UTC}
+      SERVER_NAME: ${SERVER_NAME:-UT99}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD missing from .env}
+      WEBADMIN_PORT: ${WEBADMIN_PORT:-5080}
+      MAP_NAME: ${MAP_NAME:-DM-Deck16][}
+      GAME_TYPE: ${GAME_TYPE:-Botpack.DeathMatchPlus}
+      MUTATORS: ${MUTATORS:-}
+    ports:
+      - "7777-7781:7777-7781/udp"
+      - "8777:8777/udp"
+      - "${WEBADMIN_PORT:-5080}:${WEBADMIN_PORT:-5080}"
+    volumes:
+      - data:/data
+      - ./homelab-start.sh:/app/homelab-start.sh:ro
+    healthcheck:
+      # Any HTTP answer from the web admin (it replies 401) means the server is up.
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:$${WEBADMIN_PORT}/ServerAdmin"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10m
+volumes:
+  data:

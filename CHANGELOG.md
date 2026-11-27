@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.16.0 - 2026-11-27
+
+- ut99: new app, an Unreal Tournament 99 dedicated server (`phasecorex/ut99-server`, pinned by digest: the 436 server, bonus packs and OldUnreal 469e, downloaded into the volume on first start). Game on udp 7777-7781 + 8777, web admin on :5080 (`ut99.nuc`), user `admin` with a generated password that also works for in-game `adminlogin`. Server name, admin password, first map, game type and mutators come from the .env and are written into UnrealTournament.ini on every start; the rest of the ini is left alone. For players outside the CGNAT, point a playit.gg UDP tunnel at 127.0.0.1:7777
+
 ## v1.15.1 - 2026-11-27
 
 - jellyfin: after making its API key, homelab waits for Jellyfin's API rather than `/health`, which answers a few seconds earlier while the API still returns 503 "starting". Seen on nucserver's first run; a 503 now says "still starting" instead of printing the HTML page
