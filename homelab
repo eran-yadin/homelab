@@ -83,6 +83,10 @@ usage: homelab <command> [app] [options]
                          backup.keep_weekly, backup.mode.<app> (all|nobulk|skip),
                          offsite.warn_days, firewall.lan_nets,
                          firewall.friend_tcp|friend_udp|public_tcp|public_udp
+  disk list              USB drives and what is on them (read-only)
+  disk mount /dev/sdX1   mount one READ-ONLY at /mnt/disks/<name>; Immich sees
+                         it as /external/<name> (an External Library)
+  disk unmount <name>    before unplugging it
   backup --now           start the nightly backup now, in the background
   confirm <app>          keep a risky change the app armed a rollback for
                          (the firewall turns itself off unless confirmed)
@@ -1171,6 +1175,75 @@ cmd_settings() {
     esac
 }
 
+# ------------------------------------------------------------------ disks
+#
+# USB drives for photos and old backups. `disk list` is read-only. `disk
+# mount <dev>` mounts one READ-ONLY at /mnt/disks/<name> (Immich sees it as
+# /external/<name>); nothing on the drive is ever written. `disk unmount
+# <name>` takes it off. Only removable/USB disks, never the system disk.
+DISKS_DIR=/mnt/disks
+
+_disk_safe_name() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_' | cut -c1-40; }
+
+cmd_disk() {
+    case "${ARGS[0]:-list}" in
+    list)
+        lsblk -J -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS,TRAN,RM,MODEL,PKNAME 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+def walk(n, usb):
+    usb = usb or n.get("tran") == "usb" or n.get("rm") in (True, "1")
+    if n.get("type") == "part" or (n.get("type") == "disk" and not n.get("children")):
+        if usb and n.get("fstype"):
+            mp = ", ".join(m for m in (n.get("mountpoints") or []) if m) or "-"
+            gb = int(n.get("size") or 0) / 1e9
+            print("%-12s %8.1f GB  %-6s %-16s %s" % (n["path"], gb, n.get("fstype") or "", n.get("label") or "(no label)", mp))
+    for c in n.get("children") or []:
+        walk(c, usb)
+print("%-12s %11s  %-6s %-16s %s" % ("DEVICE", "SIZE", "FS", "LABEL", "MOUNTED AT"))
+for n in d.get("blockdevices", []):
+    walk(n, False)'
+        ;;
+    mount)
+        local dev="${ARGS[1]:-}"
+        [[ "$dev" =~ ^/dev/(sd[a-z]+[0-9]*|mmcblk[0-9]+p?[0-9]*|nvme[0-9]+n[0-9]+p[0-9]+|loop[0-9]+p?[0-9]*)$ ]] || die "usage: homelab disk mount /dev/sdX1"
+        [ -b "$dev" ] || die "no such device: $dev"
+        # Never the disk the system runs from.
+        local root_src; root_src="$(findmnt -no SOURCE / 2>/dev/null || true)"
+        local parent; parent="/dev/$(lsblk -no PKNAME "$dev" 2>/dev/null | head -1)"
+        if [ -n "$root_src" ] && { [ "$root_src" = "$dev" ] || lsblk -no PKNAME "$root_src" 2>/dev/null | grep -qx "${parent#/dev/}"; }; then
+            die "$dev is on the system disk; refusing"
+        fi
+        local fs label name
+        fs="$(lsblk -no FSTYPE "$dev" | head -1)"; label="$(lsblk -no LABEL "$dev" | head -1)"
+        [ -n "$fs" ] || die "$dev has no filesystem lsblk recognises"
+        name="$(_disk_safe_name "${label:-$(lsblk -no UUID "$dev" | head -1)}")"; name="${name:-${dev##*/}}"
+        local opts="ro,nosuid,nodev,noexec"
+        case "$fs" in
+            ntfs|ntfs3) fs=ntfs3; opts="$opts,uid=$(id -u "$(owner_user)"),gid=$(id -g "$(owner_user)")" ;;
+            exfat|vfat) opts="$opts,uid=$(id -u "$(owner_user)"),gid=$(id -g "$(owner_user)")" ;;
+            ext4|ext3|ext2|xfs|btrfs) opts="$opts,noload" ; [ "$fs" = ext4 ] || [ "$fs" = ext3 ] || opts="${opts%,noload}" ;;
+            *) die "$dev: filesystem $fs is not one homelab mounts (ntfs, exfat, vfat, ext4, xfs, btrfs)" ;;
+        esac
+        if findmnt -rn -S "$dev" >/dev/null 2>&1; then ok "$dev is already mounted at $(findmnt -rno TARGET -S "$dev" | head -1)"; return 0; fi
+        banner_mode
+        log "mounting $dev ($fs, ${label:-no label}) read-only at $DISKS_DIR/$name"
+        run $SUDO mkdir -p "$DISKS_DIR/$name"
+        run $SUDO mount -t "$fs" -o "$opts" "$dev" "$DISKS_DIR/$name"
+        ok "mounted. In Immich: Administration > External Libraries > add /external/$name"
+        ;;
+    unmount|umount)
+        local name; name="$(_disk_safe_name "${ARGS[1]:-}")"
+        [ -n "$name" ] && mountpoint -q "$DISKS_DIR/$name" || die "usage: homelab disk unmount <name>   (see: homelab disk list)"
+        banner_mode
+        run $SUDO umount "$DISKS_DIR/$name"
+        run $SUDO rmdir "$DISKS_DIR/$name"
+        ok "unmounted $name; the drive can be unplugged"
+        ;;
+    *) die "usage: homelab disk list | mount /dev/sdX1 | unmount <name>" ;;
+    esac
+}
+
 cmd_restore() {
     local n="${ARGS[0]:?usage: homelab restore <app> <dir>}"
     local d="${ARGS[1]:?usage: homelab restore <app> <dir>}"
@@ -1242,6 +1315,7 @@ case "$CMD" in
     offsite) cmd_offsite ;;
     confirm) cmd_confirm ;;
     settings) cmd_settings ;;
+    disk|disks) cmd_disk ;;
     ""|help|-h|--help) usage ;;
     *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
 esac

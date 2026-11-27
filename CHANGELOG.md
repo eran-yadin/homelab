@@ -2,6 +2,11 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.14.0 - 2026-11-27
+
+- engine: `homelab disk list | mount /dev/sdX1 | unmount <name>`, for USB drives with photos and old backups. `mount` is always read-only (`ro,nosuid,nodev,noexec`, ext4 with `noload` so not even its journal is replayed), at `/mnt/disks/<label>`; ntfs, exfat, vfat, ext4, xfs, btrfs. It refuses any partition on the disk the system runs from
+- immich: `/mnt/disks` is mounted into the server read-only as `/external`, with `rslave` propagation, so a drive mounted after Immich started shows up without a restart. Add `/external/<name>` as an External Library in Immich: it shows the photos and never changes a file on the drive
+
 ## v1.13.2 - 2026-11-27
 
 - home-assistant: Bluetooth works. Home Assistant reaches Bluetooth through the host's BlueZ over D-Bus, and nucserver had an adapter (`hci0`) but no bluez, so Home Assistant listed it under Needs attention: "Failed to start Bluetooth: org.bluez was not provided by any .service files". `download` now installs bluez and starts `bluetooth.service` when the box has an adapter

@@ -17,6 +17,18 @@ services:
     volumes:
       - library:/data
       - /etc/localtime:/etc/localtime:ro
+      # Drives mounted with `homelab disk mount` (read-only, under
+      # /mnt/disks/<name>) appear here as /external/<name>: add that path as
+      # an External Library in Immich. Read-only, so Immich can show them
+      # but never change or delete a file on them. rslave: a drive mounted
+      # after Immich started shows up without restarting it.
+      - type: bind
+        source: ${EXTERNAL_DIR:-/mnt/disks}
+        target: /external
+        read_only: true
+        bind:
+          propagation: rslave
+          create_host_path: true
     environment:
       DB_HOSTNAME: database
       DB_USERNAME: ${DB_USERNAME:-postgres}
