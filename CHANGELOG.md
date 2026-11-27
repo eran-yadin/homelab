@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.13.2 - 2026-11-27
+
+- home-assistant: Bluetooth works. Home Assistant reaches Bluetooth through the host's BlueZ over D-Bus, and nucserver had an adapter (`hci0`) but no bluez, so Home Assistant listed it under Needs attention: "Failed to start Bluetooth: org.bluez was not provided by any .service files". `download` now installs bluez and starts `bluetooth.service` when the box has an adapter
+
 ## v1.13.1 - 2026-11-27
 
 - home-assistant: removes the `http:` block v1.12.1 appended to `configuration.yaml`. Current versions ignore it (the setting lives in `.storage/http` since v1.12.2) and raised a Repair warning, "HTTP YAML configuration is ignored after migration", which stops working in 2027.2. Only homelab's own block, matched line for line from its marker comment, is taken out
