@@ -22,25 +22,32 @@ is_apply || exit "$rc"
 env_file="$APP_STATE/.env"
 port="$($SUDO sed -n 's/^ADGUARD_PORT=//p' "$env_file" 2>/dev/null || true)"; port="${port:-3080}"
 api="http://127.0.0.1:$port"
+dns_ip="$($SUDO sed -n 's/^DNS_BIND_IP=//p' "$env_file" 2>/dev/null || true)"; dns_ip="${dns_ip:-0.0.0.0}"
+# Before the first-run setup the wizard listens on :3000 (host networking).
+wizard="http://127.0.0.1:3000"
 domain="$($SUDO sed -n 's/^CADDY_DOMAIN=//p' "$(app_state_dir caddy)/.env" 2>/dev/null || true)"; domain="${domain:-nuc}"
 lan_ip="${DET_IP:-}"
 ts_ip="$(ip -4 -o addr show tailscale0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1 || true)"
 lan_net="$(ip -4 route show dev "$(ip route | awk '/^default/{print $5; exit}')" proto kernel scope link 2>/dev/null | awk '{print $1; exit}' || true)"
 
 have curl || { warn "adguard: curl is missing, finish the setup at $api"; exit "$rc"; }
-for _ in $(seq 1 30); do curl -fsS -o /dev/null "$api/" 2>/dev/null && break; sleep 1; done
+for _ in $(seq 1 30); do
+    curl -fsS -o /dev/null "$api/" 2>/dev/null && break
+    curl -fsS -o /dev/null "$wizard/" 2>/dev/null && break
+    sleep 1
+done
 
 # --- first run: the wizard ---------------------------------------------------
-if curl -fsS "$api/control/install/get_addresses" >/dev/null 2>&1; then
+if curl -fsS "$wizard/control/install/get_addresses" >/dev/null 2>&1; then
     pass="$($SUDO sed -n 's/^ADGUARD_ADMIN_PASSWORD=//p' "$env_file" || true)"
     if [ -z "$pass" ]; then
         pass="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | cut -c1-24)"
         printf 'ADGUARD_ADMIN_USER=admin\nADGUARD_ADMIN_PASSWORD=%s\n' "$pass" | $SUDO tee -a "$env_file" >/dev/null
     fi
     log "adguard: first-run setup (admin account; password in $env_file)"
-    body="$(printf '{"web":{"ip":"0.0.0.0","port":3000},"dns":{"ip":"0.0.0.0","port":53},"username":"admin","password":"%s"}' "$pass")"
-    curl -fsS -X POST -H 'Content-Type: application/json' -d "$body" "$api/control/install/configure" >/dev/null \
-        || die "adguard: the setup call failed; finish it by hand at $api"
+    body="$(printf '{"web":{"ip":"0.0.0.0","port":%s},"dns":{"ip":"%s","port":53},"username":"admin","password":"%s"}' "$port" "$dns_ip" "$pass")"
+    curl -fsS -X POST -H 'Content-Type: application/json' -d "$body" "$wizard/control/install/configure" >/dev/null \
+        || die "adguard: the setup call failed; finish it by hand at $wizard"
     for _ in $(seq 1 20); do curl -fsS -o /dev/null "$api/login.html" 2>/dev/null && break; sleep 1; done
 fi
 

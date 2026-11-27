@@ -3,20 +3,21 @@ services:
     image: adguard/adguardhome:latest
     container_name: adguard
     restart: unless-stopped
-    ports:
-      # DNS_BIND_IP is decided at install time. On a host running
-      # systemd-resolved, something already holds 127.0.0.53:53 (and often
-      # 127.0.0.54:53), and binding 0.0.0.0:53 then fails with "address
-      # already in use" -- intermittently, which is worse than always.
-      # Binding the LAN address instead sidesteps it without touching resolved.
-      - "${DNS_BIND_IP:-0.0.0.0}:53:53/tcp"
-      - "${DNS_BIND_IP:-0.0.0.0}:53:53/udp"
-      - "${ADGUARD_PORT:-3080}:3000"   # setup wizard, then the dashboard
+    # Host networking, so AdGuard sees each client's real address. Through
+    # docker's port publishing, queries that arrive over the tailnet reach it
+    # via docker-proxy and all look like the bridge gateway (172.x), and the
+    # per-network *.nuc rules (LAN address for home, tailscale address for
+    # the tailnet) cannot tell them apart. Measured on nucserver, 2026-11-27.
+    # The DNS address (DNS_BIND_IP) and the web port (ADGUARD_PORT) are set in
+    # AdGuard's own config by start.sh on the first run.
+    network_mode: host
     volumes:
       - work:/opt/adguardhome/work
       - conf:/opt/adguardhome/conf
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3000 || exit 1"]
+      # Before the first-run setup the wizard is on :3000; after it, the
+      # dashboard is on ADGUARD_PORT. Either answering means alive.
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:${ADGUARD_PORT:-3080} || wget -qO /dev/null http://127.0.0.1:3000 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

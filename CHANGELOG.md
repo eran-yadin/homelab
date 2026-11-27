@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.11.1 - 2026-11-27
+
+- adguard: host networking. Through docker's port publishing, queries that came in over the tailnet reached AdGuard via docker-proxy and all looked like the bridge gateway (172.28.0.1 on nucserver), so the tailnet's `*.nuc` rule never matched and those clients got no answer. With host networking AdGuard sees every client's real address (its per-client stats become right too). The first-run setup now puts the dashboard on `ADGUARD_PORT` and DNS on `DNS_BIND_IP` itself. An install from v1.11.0 needs `delete --purge` + `install`: its web port was set to 3000 inside the container
+
 ## v1.11.0 - 2026-11-27
 
 - adguard: sets itself up. The first start does the setup wizard's job (an admin account, its password generated and kept only in the app's `.env`), and every start writes `*.nuc` rules: home devices get the LAN address, tailnet devices the tailscale address, so `hub.nuc` works away from home too. Rules added by hand are kept. Calls wait for AdGuard's API rather than its web server, which answers first and 404s the API for a few seconds after a restart
