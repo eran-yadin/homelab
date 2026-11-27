@@ -83,6 +83,8 @@ usage: homelab <command> [app] [options]
                          backup.keep_weekly, backup.mode.<app> (all|nobulk|skip),
                          offsite.warn_days, firewall.lan_nets,
                          firewall.friend_tcp|friend_udp|public_tcp|public_udp
+  <app> ...              an app's own commands, e.g. homelab jellyfin user add NAME
+                         (see: homelab jellyfin help)
   disk list              USB drives and what is on them (read-only)
   disk mount /dev/sdX1   mount one READ-ONLY at /mnt/disks/<name>; Immich sees
                          it as /external/<name> (an External Library)
@@ -130,7 +132,11 @@ while [ $# -gt 0 ]; do
         --now)    NOW=1 ;;
         --debug)  HOMELAB_DEBUG=1; export HOMELAB_DEBUG ;;
         -h|--help) usage; exit 0 ;;
-        -*) die "unknown option: $1" ;;
+        -*)
+            # Options the engine does not know go to an app's own commands
+            # (homelab jellyfin user add NAME --kid 10); anywhere else, an error.
+            if [ -n "$CMD" ] && [ -x "$HOMELAB_APPS/$CMD/cmd.sh" ]; then ARGS+=("$1")
+            else die "unknown option: $1"; fi ;;
         *)  ARGS+=("$1") ;;
     esac
     shift
@@ -1317,5 +1323,15 @@ case "$CMD" in
     settings) cmd_settings ;;
     disk|disks) cmd_disk ;;
     ""|help|-h|--help) usage ;;
-    *) err "unknown command: $CMD"; echo; usage; exit 1 ;;
+    *)
+        # An app can bring its own commands: apps/<app>/cmd.sh, run as
+        # `homelab <app> ...` (homelab jellyfin user add NAME). It goes
+        # through the same dispatch as the verbs, so it gets the app's
+        # environment, the dry-run gate and the per-app lock.
+        if catalog_exists "$CMD" && [ -x "$HOMELAB_APPS/$CMD/cmd.sh" ]; then
+            banner_mode
+            app_run_verb "$CMD" cmd "${ARGS[@]}"
+        else
+            err "unknown command: $CMD"; echo; usage; exit 1
+        fi ;;
 esac

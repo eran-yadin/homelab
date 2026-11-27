@@ -2,6 +2,14 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.15.0 - 2026-11-27
+
+- jellyfin: family accounts and guest shares, from the home-server-kit idea, rewritten for homelab. `homelab jellyfin user list | add NAME [--kid AGE] | password NAME | remove NAME`: family accounts see everything and can download; a kid account sees Movies + Shows only, ratings up to AGE, unrated items hidden, no downloads. Both appear on Jellyfin's login screen. `homelab jellyfin share NAME [--hours 24] | share list | share stop NAME|all`: a hidden guest account (Movies + Shows, no downloads, no deleting, 2 streams) that a timer removes when its time is up, also after a reboot. Passwords are easy to type with a TV remote and printed once. A public link (Tailscale Funnel or invite) is not built yet
+- jellyfin: homelab makes its own API key once, written into Jellyfin's database while Jellyfin is stopped (no admin login needed) and kept root-only; it reaches jfctl.py on stdin, never on a command line
+- jellyfin: client discovery. UDP 7359 is published and Jellyfin announces `PUBLISHED_URL` (the LAN address, filled in at install), so TVs and phone apps find the server by themselves instead of being told its 172.x container address
+- engine: an app can bring its own commands (`apps/<app>/cmd.sh`, run as `homelab <app> ...`), with the app's environment, the dry-run gate and the per-app lock; options the engine does not know pass through to them
+- fix: the per-app lock is opened read-only. With the lock directory sticky and world-writable (v1.11.0), the kernel's `fs.protected_regular` refused even root an append-open of a lock file another user had created, and the command ran without its lock
+
 ## v1.14.0 - 2026-11-27
 
 - engine: `homelab disk list | mount /dev/sdX1 | unmount <name>`, for USB drives with photos and old backups. `mount` is always read-only (`ro,nosuid,nodev,noexec`, ext4 with `noload` so not even its journal is replayed), at `/mnt/disks/<label>`; ntfs, exfat, vfat, ext4, xfs, btrfs. It refuses any partition on the disk the system runs from

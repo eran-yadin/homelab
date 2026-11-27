@@ -61,6 +61,19 @@ sudo $H confirm firewall --apply    # keep it; without this it switches itself o
 sudo nft list table inet homelab    # the rules as loaded
 ```
 
+## Jellyfin accounts
+
+```sh
+$H jellyfin user list
+sudo $H jellyfin user add mom --apply              # family: everything, can download
+sudo $H jellyfin user add noa --kid 12 --apply     # kid: Movies + Shows, ratings up to 12
+sudo $H jellyfin user password noa --apply         # a new password, printed once
+sudo $H jellyfin user remove noa --apply
+sudo $H jellyfin share dan --hours 24 --apply      # guest that ends by itself
+sudo $H jellyfin share list --apply
+sudo $H jellyfin share stop dan --apply            # or: stop all
+```
+
 ## USB drives (read-only)
 
 ```sh

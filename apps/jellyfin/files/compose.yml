@@ -5,6 +5,12 @@ services:
     restart: unless-stopped
     ports:
       - "${JELLYFIN_PORT:-8096}:8096"
+      # Client discovery: TVs and phone apps broadcast here to find the
+      # server. The answer carries PUBLISHED_URL, because from inside the
+      # container Jellyfin only knows its own 172.x address.
+      - "7359:7359/udp"
+    environment:
+      JELLYFIN_PublishedServerUrl: ${PUBLISHED_URL:-}
     volumes:
       - config:/config
       - cache:/cache

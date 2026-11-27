@@ -127,13 +127,21 @@ app_run_verb() {
         fi
         set +e
         (
-            { exec 9>>"$lock"; } 2>/dev/null || { warn "$name: cannot open $lock, running without a lock"; exec 9>/dev/null; }
-            chmod 0666 "$lock" 2>/dev/null || true
+            # Create it if missing, then open it READ-only: flock needs no
+            # more, and in a sticky world-writable directory the kernel
+            # (fs.protected_regular) refuses even root an O_CREAT/append open
+            # of a file another user created -- which silently dropped the
+            # lock whenever a non-root run had made the file first.
+            if [ ! -e "$lock" ]; then { : >"$lock"; chmod 0666 "$lock"; } 2>/dev/null || true; fi
+            { exec 9<"$lock"; } 2>/dev/null || { warn "$name: cannot open $lock, running without a lock"; exec 9</dev/null; }
             if ! flock -n 9; then
                 log "$name is busy: $(cat "$lock.who" 2>/dev/null || echo 'another command'). waiting (up to ${HOMELAB_LOCK_WAIT}s)"
                 flock -w "$HOMELAB_LOCK_WAIT" 9 || die "$name is still busy after ${HOMELAB_LOCK_WAIT}s: $(cat "$lock.who" 2>/dev/null || echo 'another command'). try again later"
             fi
-            { printf '%s since %s (pid %s)\n' "$verb" "$(date +%H:%M:%S)" "$$" > "$lock.who"; chmod 0666 "$lock.who"; } 2>/dev/null || true
+            # .who is informational; if another user's copy is in the way,
+            # replace it rather than write into it (same kernel rule).
+            { rm -f "$lock.who.$$"; printf '%s since %s (pid %s)\n' "$verb" "$(date +%H:%M:%S)" "$$" > "$lock.who.$$" \
+              && chmod 0666 "$lock.who.$$" && mv -f "$lock.who.$$" "$lock.who"; } 2>/dev/null || true
             _app_exec_verb "$verb" "$@"
         )
         rc=$?
