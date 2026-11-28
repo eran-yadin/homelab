@@ -2,6 +2,10 @@
 
 One line per release. The hub's Update button installs the newest tag here.
 
+## v1.17.2 - 2026-11-28
+
+- jellyfin: host networking, so TVs and phone apps find it by themselves. Discovery is a UDP broadcast to 7359, and docker's port publishing passes direct packets but not broadcasts: from a machine on nucserver's LAN, asking 10.0.0.5 got an answer, broadcasting to 10.0.0.255 got none, and the Jellyfin TV app found no server. On the host network Jellyfin answers the broadcast itself (and DLNA works). `PUBLISHED_URL` stays, so the answer names the LAN address
+
 ## v1.17.1 - 2026-11-27
 
 - hub: Jellyfin and its download stack (qBittorrent, Prowlarr, Radarr, Sonarr, Lidarr, Seerr) share a `jellyfin` category, so they sit under one filter tab with one colour instead of being spread through `media`

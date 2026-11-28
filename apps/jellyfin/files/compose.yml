@@ -3,12 +3,13 @@ services:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
     restart: unless-stopped
-    ports:
-      - "${JELLYFIN_PORT:-8096}:8096"
-      # Client discovery: TVs and phone apps broadcast here to find the
-      # server. The answer carries PUBLISHED_URL, because from inside the
-      # container Jellyfin only knows its own 172.x address.
-      - "7359:7359/udp"
+    # Host networking, as on home-server-kit. TVs and phone apps find the
+    # server with a UDP broadcast to port 7359, and docker's port publishing
+    # does not pass broadcasts on: from the LAN a direct question got an
+    # answer and a broadcast got none (nucserver, 2026-11-28). On the host
+    # network Jellyfin hears them itself, and DLNA works too. Jellyfin
+    # listens on 8096 (http) here; the firewall app keeps it to LAN + tailnet.
+    network_mode: host
     environment:
       JELLYFIN_PublishedServerUrl: ${PUBLISHED_URL:-}
     volumes:
